@@ -1,0 +1,9 @@
+# Keep the api build context (project root) lean. The analyzer build uses
+# ./analyzer as its context and reads ./analyzer/.dockerignore instead.
+**/node_modules
+**/dist
+**/__pycache__
+**/.venv
+data/
+.env
+.git

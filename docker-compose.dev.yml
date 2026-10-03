@@ -1,0 +1,30 @@
+# Development override: live-reload the analyzer, api, and client, sources bind-mounted.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  analyzer:
+    command: uvicorn analyzer.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./analyzer:/app/analyzer
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      target: dev
+    environment:
+      ANALYZER_BASE_URL: http://analyzer:8000
+    volumes:
+      # Live source reload; container node_modules stays isolated from the host.
+      - ./api:/app/api
+      - api-node-modules:/app/api/node_modules
+      - ./data:/data
+
+  client:
+    volumes:
+      # Live source reload; container node_modules stays isolated from the host.
+      - ./client:/app/client
+      - client-node-modules:/app/client/node_modules
+
+volumes:
+  api-node-modules:
+  client-node-modules:
