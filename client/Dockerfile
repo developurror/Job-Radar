@@ -1,0 +1,12 @@
+FROM node:24-alpine
+
+WORKDIR /app/client
+
+COPY client/package.json client/package-lock.json* ./
+RUN npm install --ignore-scripts --no-audit --no-fund
+
+COPY client/ ./
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev"]

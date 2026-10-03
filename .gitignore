@@ -1,0 +1,21 @@
+# Local settings and secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local data (SQLite database and anything the app stores at runtime).
+# Anchored to the repo root: api/src/data/ is source code, not runtime data.
+/data/
+*.db
+*.db-journal
+
+# Dependencies and build output
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Misc
+.DS_Store
+*.log

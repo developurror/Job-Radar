@@ -1,0 +1,76 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      ANALYZER_BASE_URL: http://analyzer:8000
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      ADZUNA_COUNTRY: ${ADZUNA_COUNTRY:-us}
+      ADZUNA_WHAT: ${ADZUNA_WHAT:-}
+      ADZUNA_WHERE: ${ADZUNA_WHERE:-}
+      ADZUNA_MAX_PAGES: ${ADZUNA_MAX_PAGES:-2}
+    # SQLite database lives in ./data: inspectable in VS Code, easy to back up.
+    volumes:
+      - ./data:/data
+    depends_on:
+      - analyzer
+
+  analyzer:
+    build: ./analyzer
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_DEEP_PROVIDER: ${LLM_DEEP_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-hermes3:8b}
+      LLM_DEEP_MODEL: ${LLM_DEEP_MODEL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://llm:11434}
+      LLAMACPP_BASE_URL: ${LLAMACPP_BASE_URL:-http://host.docker.internal:8080}
+      HOSTED_BASE_URL: ${HOSTED_BASE_URL:-}
+      HOSTED_API_KEY: ${HOSTED_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-small-en-v1.5}
+    # Lets the analyzer reach a llama.cpp server running on the Docker HOST (Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - llm
+
+  llm:
+    image: ollama/ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    # GPU passthrough for the RTX 3060. Host needs nvidia-container-toolkit.
+    # If the host has no NVIDIA GPU, remove this block to run Ollama on CPU.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3001
+    # Live source for dev; node_modules stays inside the container.
+    volumes:
+      - ./client/src:/app/client/src:ro
+      - ./client/index.html:/app/client/index.html:ro
+      - ./client/vite.config.ts:/app/client/vite.config.ts:ro
+      - client-node-modules:/app/client/node_modules
+    depends_on:
+      - api
+
+volumes:
+  ollama-models:
+  client-node-modules:
