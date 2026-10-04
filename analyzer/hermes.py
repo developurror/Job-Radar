@@ -54,8 +54,8 @@ def plan_search_queries(company_name: str, provider: LlmProvider) -> list[str]:
         "Reply with ONLY a JSON array of 2 to 4 query strings, e.g. "
         '["Acme Corp what do they do", "Acme Corp reviews"].'
     )
-    raw_response = provider.complete(
-        prompt, CompletionOptions(max_tokens=256, temperature=0.2)
+    raw_response = _require_response_content(
+        provider.complete(prompt, CompletionOptions(max_tokens=1024, temperature=0.2))
     )
     queries = _extract_json_array(raw_response)
     cleaned_queries = [query.strip() for query in queries if query.strip()]
@@ -123,8 +123,8 @@ def synthesize_intel(
         '"no notable reputation signals found"), "sentiment" (one of '
         '"positive", "mixed", "negative", "unknown").'
     )
-    raw_response = provider.complete(
-        prompt, CompletionOptions(max_tokens=1024, temperature=0.2)
+    raw_response = _require_response_content(
+        provider.complete(prompt, CompletionOptions(max_tokens=2048, temperature=0.2))
     )
     intel = _extract_json_object(raw_response)
     return _normalize_intel(intel)
@@ -162,6 +162,21 @@ def analyze_company(
         return synthesize_intel(clean_name, evidence_pages, provider)
     except Exception as error:
         raise HermesError(f"intel synthesis failed: {error}") from error
+
+
+def _require_response_content(raw_response: str) -> str:
+    """Return the model's response, failing loudly when it came back empty.
+
+    A thinking model can spend its entire token budget in the reasoning
+    channel and return empty content; that deserves its own error instead
+    of a misleading JSON parse failure from the extractors downstream.
+    """
+    if not raw_response.strip():
+        raise HermesError(
+            "model returned no content (a thinking model may have "
+            "exhausted its token budget)"
+        )
+    return raw_response
 
 
 def _extract_json_array(raw_response: str) -> list:

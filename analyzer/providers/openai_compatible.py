@@ -23,6 +23,7 @@ class OpenAiCompatibleProvider(LlmProvider):
         model: str,
         api_key: str = "",
         timeout_seconds: float = 120.0,
+        extra_payload_fields: dict[str, Any] | None = None,
     ) -> None:
         if not base_url:
             raise ValueError(f"Cannot build '{provider_name}' provider: base URL is empty.")
@@ -31,6 +32,9 @@ class OpenAiCompatibleProvider(LlmProvider):
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        # Backend-specific fields merged into every chat-completions payload
+        # (e.g. Ollama's reasoning_effort). Empty for backends that need none.
+        self.extra_payload_fields = dict(extra_payload_fields or {})
         # trust_env=False: the backends this client talks to are infrastructure the
         # user controls (local Ollama, host llama.cpp, or an explicitly configured
         # hosted endpoint). Ambient proxy env vars must not reroute those calls,
@@ -56,6 +60,7 @@ class OpenAiCompatibleProvider(LlmProvider):
         }
         if resolved_options.json_mode:
             payload["response_format"] = {"type": "json_object"}
+        payload.update(self.extra_payload_fields)
         response = self._http_client.post(
             self._chat_completions_url(), json=payload, headers=self._request_headers()
         )
@@ -106,6 +111,12 @@ class OllamaProvider(OpenAiCompatibleProvider):
             base_url=base_url,
             model=model,
             timeout_seconds=timeout_seconds,
+            # Thinking models (e.g. gemma4) spend the whole token budget in
+            # their reasoning channel on Ollama's /v1 endpoint and return
+            # empty content. reasoning_effort "none" is the field that
+            # endpoint honors to disable thinking; the native `think`
+            # flag is ignored there. Non-thinking models ignore the field.
+            extra_payload_fields={"reasoning_effort": "none"},
         )
 
 
