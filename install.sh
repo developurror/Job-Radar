@@ -9,7 +9,8 @@
 #   3. Makes sure Ollama is installed on this machine and downloads
 #      the AI model JobRadar uses.
 #   4. Builds and starts the JobRadar services with Docker Compose.
-#   5. Waits until everything answers, then prints the dashboard URL.
+#   5. Waits until everything answers, then offers to open the
+#      dashboard in your browser.
 #
 # Supported: Linux, and Windows via WSL2 (run this inside your WSL
 # Ubuntu). macOS with Docker Desktop is expected to work but untested.
@@ -63,6 +64,29 @@ confirm() {
 http_status() {
   # Prints the HTTP status code for a URL, or 000 when unreachable.
   curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$1" 2>/dev/null || printf '000'
+}
+
+DASHBOARD_URL='http://localhost:5173'
+
+# open_dashboard -> opens the dashboard in the default browser, best effort.
+# Never fails the script: when no opener exists it simply prints the URL.
+# JOBRADAR_NO_BROWSER=1 skips the opening (e.g. repeated test runs).
+open_dashboard() {
+  say "  Dashboard: $DASHBOARD_URL"
+  if [ "${JOBRADAR_NO_BROWSER:-}" = '1' ]; then
+    return 0
+  fi
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi 'microsoft' /proc/version 2>/dev/null; then
+    if command -v wslview >/dev/null 2>&1; then
+      wslview "$DASHBOARD_URL" >/dev/null 2>&1 || true
+    elif command -v cmd.exe >/dev/null 2>&1; then
+      cmd.exe /c start "$DASHBOARD_URL" >/dev/null 2>&1 || true
+    fi
+  elif [ "$(uname -s)" = 'Darwin' ]; then
+    open "$DASHBOARD_URL" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$DASHBOARD_URL" >/dev/null 2>&1 || true
+  fi
 }
 
 say '=============================================='
@@ -262,3 +286,16 @@ say '    - Stop JobRadar:   docker compose stop'
 say '    - Start it again:  docker compose up -d --no-deps analyzer api client'
 say '      (or just run this script again — it also handles updates).'
 say ''
+
+# A double-clicked terminal closes the moment this script ends, taking the
+# summary above with it — so offer to open the dashboard, then wait for
+# Enter before finishing. Interactive runs only: piped or automated runs
+# must never block waiting for input that will not come.
+if [ -t 0 ]; then
+  if confirm 'Open JobRadar in your browser now?'; then
+    open_dashboard
+  fi
+  printf 'Press Enter to close this window…' >&2
+  read -r press_enter || true
+  say ''
+fi

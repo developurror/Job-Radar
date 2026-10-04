@@ -7,7 +7,8 @@
 #   2. If JobRadar is set to use Ollama (the default), makes sure the
 #      Ollama server on this machine is running and has the model.
 #   3. Builds (if needed) and starts the services with Docker Compose.
-#   4. Waits until everything answers, then prints the dashboard URL.
+#   4. Waits until everything answers, then opens the dashboard in
+#      your browser (JOBRADAR_NO_BROWSER=1 prints the URL only).
 #
 # This script asks no questions and installs nothing. For first-time
 # setup — or to change your settings — run ./install.sh instead; it
@@ -31,6 +32,29 @@ fail() {
 http_status() {
   # Prints the HTTP status code for a URL, or 000 when unreachable.
   curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$1" 2>/dev/null || printf '000'
+}
+
+DASHBOARD_URL='http://localhost:5173'
+
+# open_dashboard -> opens the dashboard in the default browser, best effort.
+# Never fails the script: when no opener exists it simply prints the URL.
+# JOBRADAR_NO_BROWSER=1 skips the opening (e.g. repeated test runs).
+open_dashboard() {
+  say "  Dashboard: $DASHBOARD_URL"
+  if [ "${JOBRADAR_NO_BROWSER:-}" = '1' ]; then
+    return 0
+  fi
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi 'microsoft' /proc/version 2>/dev/null; then
+    if command -v wslview >/dev/null 2>&1; then
+      wslview "$DASHBOARD_URL" >/dev/null 2>&1 || true
+    elif command -v cmd.exe >/dev/null 2>&1; then
+      cmd.exe /c start "$DASHBOARD_URL" >/dev/null 2>&1 || true
+    fi
+  elif [ "$(uname -s)" = 'Darwin' ]; then
+    open "$DASHBOARD_URL" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$DASHBOARD_URL" >/dev/null 2>&1 || true
+  fi
 }
 
 # env_value KEY DEFAULT -> the value of KEY in ./.env, or DEFAULT.
@@ -152,4 +176,6 @@ say '  JobRadar is ready:  http://localhost:5173'
 say '=============================================='
 say ''
 say '  Stop JobRadar:  docker compose stop'
+say ''
+open_dashboard
 say ''
