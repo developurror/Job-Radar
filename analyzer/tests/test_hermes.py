@@ -71,6 +71,18 @@ def test_plan_search_queries_rejects_garbage():
         plan_search_queries("Acme Corp", provider)
 
 
+def test_plan_search_queries_reports_empty_model_response():
+    provider = ScriptedProvider([""])
+    with pytest.raises(HermesError, match="no content"):
+        plan_search_queries("Acme Corp", provider)
+
+
+def test_synthesize_intel_reports_empty_model_response():
+    provider = ScriptedProvider(["   "])
+    with pytest.raises(HermesError, match="no content"):
+        synthesize_intel("Acme Corp", [], provider)
+
+
 def test_analyze_company_respects_budgets():
     planned_queries: list[str] = []
     fetched_urls: list[str] = []
