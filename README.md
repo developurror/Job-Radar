@@ -1,47 +1,21 @@
 # JobRadar — local-first, explainable IT job search
 
-Phase 6 (sources, salary benchmarks, learned match, ingestion panel) is the
-current state; the sections below are organized by feature area and note the
-phase that introduced each.
+JobRadar collects IT job postings from several job boards, checks each one
+against rules you set, and scores the ones that survive — so you spend your
+time on real, worthwhile openings instead of scams, ghost jobs, and
+staffing-agency middlemen.
 
-Phase 2 adds the **criteria engine** (spec F3): a criteria table with 10
-premade templates, a three-validator cascade (keyword → semantic → LLM judge),
-and persisted per-job evaluations. The **client** service (Vue 3 + Vuetify +
-Pinia) provides the dashboard: a left criteria rail (grouped templates, custom
-criteria builder, kind/validator badges, active toggle) and a center results
-list with outcome filtering, evaluate-all, outcome chips, top reasons, and
-expandable per-criterion evidence.
+Everything runs on your own machine. Your profile, your settings, and every
+job you look at stay in a local database. JobRadar is a *search* tool only:
+it never applies for you, tracks your applications, or sends your data
+anywhere. (One narrow exception, explained under
+[Company intel](#company-intel): researching a company searches the web for
+that company's name — nothing about you.)
 
-Phase 1 added the **api** service (Node/Express/TypeScript/Drizzle/SQLite): it
-ingests job postings from **Adzuna** and the monthly Hacker News "Who is
-hiring?" thread, normalizes them (salary/location/employment parsing, SHA-256
-fingerprinting), and dedupes — exact `(source, external_id)` and fingerprint
-matches plus embedding cosine-similarity (0.92 threshold, same-company only)
-via the analyzer. SQLite lives in `./data/app.db`, bind-mounted for inspection.
+## Quick install (install.sh)
 
-Phase 0 scaffolds the **analyzer** service: a Python/FastAPI "brain" with a
-configurable LLM provider abstraction (local Ollama, host llama.cpp, or hosted API),
-sentence-transformers embeddings, and the first two endpoints from the spec
-(`GET /health`, `POST /v1/embed`).
-
-Phase 6 widens ingestion to six sources and makes it dashboard-driven: an
-**Ingestion panel** in the left rail holds your search preferences (keywords,
-country, province/state, city, field), per-source toggles, and per-source
-credentials — all stored in the local database, overriding the `.env`
-defaults — plus a **Run ingestion** button that reports per-source counts.
-It also adds **salary benchmarks** (bundled CA/US labor-statistics tables
-compared against each posting's range in the score breakdown and the
-below-market flag) and a **learned-match** interview-chance factor that
-trains a small logistic-regression model on your local thumbs up/down
-ratings once enough labels exist.
-
-Spec: `../goals/jobradar-it-job-search-engine/files/jobradar-spec-v0.1.md`
-(working title "JobRadar" — rename freely).
-
-## Install (one-shot)
-
-The easy path. You need Docker (with Compose v2) — everything else,
-including the local AI server (Ollama) and its model, is set up for you.
+You need **Docker** (with Compose v2) — everything else, including the
+local AI server (Ollama) and its model, is set up for you.
 
 **Linux**
 
@@ -49,15 +23,13 @@ including the local AI server (Ollama) and its model, is set up for you.
 ./install.sh
 ```
 
-The script checks your system, asks a few questions (AI model, search
-country/keywords, an optional free Adzuna key), starts everything, and
-prints the dashboard address: http://localhost:5173. Re-running it is
-safe — it keeps your `.env` and your data, and doubles as the
-update/restart path.
+The script checks your system, asks a few questions (which AI model, your
+search country and keywords, an optional free Adzuna key), starts
+everything, and prints the dashboard address: **http://localhost:5173**.
 
 **Windows (via WSL2)**
 
-1. In PowerShell (as administrator): `wsl --install`, then reboot and
+1. In PowerShell (as administrator) run `wsl --install`, then reboot and
    finish setting up your Ubuntu user when it opens.
 2. Install Docker Desktop for Windows and, in its settings, enable the
    WSL integration for your Ubuntu distribution.
@@ -69,115 +41,265 @@ update/restart path.
 Install Docker Desktop for Mac, then run `./install.sh` in a terminal.
 This path is expected to work but has not been tested by the maintainers.
 
-Notes: the installer runs the AI through an Ollama installed on your
-machine (not the `llm` container described below), because that is the
-setup that works across the widest range of hardware. Your database
-lives in `./data` and your settings in `./.env` — back those two up and
-you have backed up JobRadar.
+Good to know:
 
-## Prerequisites
+- Re-running `./install.sh` is safe. It keeps your `.env` and your data,
+  and doubles as the update/restart path.
+- After the first install, use [`./run.sh`](#starting-and-stopping) for
+  everyday starts — it just boots the app.
+- Your database lives in `./data` and your settings in `./.env`. Back
+  those two up and you have backed up JobRadar.
 
-- Docker with Compose v2
-- For GPU acceleration of the `llm` service: `nvidia-container-toolkit` on the host.
-  Without it, remove the `deploy.resources.reservations.devices` block from
-  `docker-compose.yml` to run Ollama on CPU.
+## Manual installation
 
-## Pull the LLM model (required, explicit step)
+If you prefer to set things up yourself:
 
-Ollama ships without models. After the containers are up:
+1. Install **Docker** (with Compose v2) and **Ollama**
+   (https://ollama.com/download) on your machine. JobRadar talks to the
+   Ollama running on your machine, not a container.
+2. Get the code and enter the folder:
+
+   ```bash
+   git clone https://github.com/developurror/Job-Radar.git
+   cd Job-Radar
+   ```
+
+3. Create your settings file and point it at your Ollama:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   In `.env`, set:
+
+   ```bash
+   OLLAMA_BASE_URL=http://host.docker.internal:11434
+   LLM_MODEL=hermes3:8b        # or any other Ollama model you like
+   ```
+
+4. Download the AI model:
+
+   ```bash
+   ollama pull hermes3:8b      # use the model you set in LLM_MODEL
+   ```
+
+5. Build and start the services (this deliberately skips the optional
+   `llm` container — your own Ollama does that job):
+
+   ```bash
+   docker compose up -d --build --no-deps analyzer api client
+   ```
+
+6. Open the dashboard: **http://localhost:5173**
+
+The three services, if you ever need them directly:
+
+- Dashboard: http://localhost:5173
+- API: http://localhost:3001 (health check at `/health`)
+- Analyzer (the AI/embeddings service): http://localhost:8000 (health
+  check at `/health`, interactive API docs at `/docs`)
+
+*Advanced alternative:* the compose file also ships an `llm` service that
+runs Ollama inside Docker. It needs an NVIDIA GPU and the
+`nvidia-container-toolkit` on the host, and it does not work under Docker
+Desktop on Windows. The setup above — Ollama on your machine — is the one
+that works everywhere, so prefer it unless you know you need the
+container.
+
+### Development
+
+Live reload with source files bind-mounted:
 
 ```bash
-docker compose exec llm ollama pull hermes3:8b
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
-(`LLM_MODEL` in `.env` controls which model the analyzer requests.)
-
-## Run
+Tests (they mock the AI models — no weights are downloaded):
 
 ```bash
-cp .env.example .env   # optional; defaults work out of the box
-docker compose up --build
+cd api && npm test
+cd analyzer && python -m pytest tests/ -v
+cd client && npm run typecheck && npm run build
 ```
 
-- Analyzer: http://localhost:8000 (`/health`, `/v1/embed`, `/v1/generate`, interactive docs at `/docs`)
-- API: http://localhost:3001 (`/health`, `POST /v1/ingest`, `GET /v1/jobs`, `GET /v1/ingestion-runs`, criteria + evaluation endpoints below)
-- Client: http://localhost:5173 (dashboard: criteria builder + results list)
-- Development (live reload, source bind-mounted):
-  `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`
+## What it does, and how to use it
 
-## Ingesting jobs
+### Search the web
 
-**Sources (Phase 6):**
+The **Search the web** panel at the top of the dashboard is how jobs get
+in. Set your keywords, country, province/state, city, and field, tick the
+sources you want, and click **Run search**. A banner then reports, per
+source, how many postings were fetched, how many were new, and how many
+were duplicates.
 
-| Source | Auth | Notes |
+| Source | Needs a key? | Notes |
 |---|---|---|
-| Hacker News "Who is hiring?" | none | Monthly thread via the Algolia HN API |
-| Adzuna | free app_id/app_key (developer.adzuna.com) | Keyword + location search |
-| RemoteOK | none | Public JSON API. *Data courtesy of [RemoteOK](https://remoteok.com) — please link back to RemoteOK when displaying their listings.* |
-| Arbeitnow | none | Free job-board API |
-| The Muse | none | Public jobs API; your Field value is passed as its category |
-| We Work Remotely | none | Programming-jobs RSS feed |
+| Hacker News "Who is hiring?" | No | The monthly thread, via the Algolia HN API |
+| Adzuna | Yes — free key from developer.adzuna.com | Keyword + location search |
+| RemoteOK | No | Public JSON API. *Data courtesy of [RemoteOK](https://remoteok.com) — please link back to RemoteOK when displaying their listings.* |
+| Arbeitnow | No | Free job-board API |
+| The Muse | No | Public jobs API; your Field value is used as its category |
+| We Work Remotely | No | Programming-jobs RSS feed |
 
-All six are toggled independently; the four newer sources need no keys.
-Adzuna is skipped automatically until credentials exist.
+Example: keywords `software engineer`, country `ca`, province `Quebec`,
+field `software` searches Adzuna Canada for software-engineer postings
+while the keyless sources bring in their remote listings.
 
-**The Ingestion panel (dashboard left rail)** is the primary way to ingest:
-set keywords / country / province / city / field, tick the sources, paste
-any source credentials into that source's fields, **Save config**, then
-**Run ingestion** — the banner reports fetched / new / duplicates per
-source. Everything you save lives in your local SQLite database
-(`ingestion_config` and `source_credentials` tables) and never leaves the
-machine; credentials have the same trust level as your `.env` file and are
-never returned by the API (the panel only ever sees "saved ····last4").
+Duplicates are filtered three ways: exact source IDs, a content
+fingerprint, and a similarity check against postings from the same
+company — so a job reposted under a slightly different title still counts
+as one job.
 
-**Configuration precedence:** a Run-ingestion request's own values win over
-the saved panel config, which wins over `.env` defaults
-(`ADZUNA_WHAT` / `ADZUNA_COUNTRY` / `ADZUNA_WHERE` / `ADZUNA_APP_ID` /
-`ADZUNA_APP_KEY`). Saving in the panel does not modify your `.env`.
+Adzuna stays off until its key exists. Paste the app ID and key into the
+Adzuna fields in the panel (or into `.env`) — the panel only ever shows
+"saved ····last4"; the raw key is never sent back to your browser.
+
+Which settings win, in order: what you type in the panel for this run,
+then what you previously saved in the panel, then `.env`. Saving in the
+panel never modifies your `.env`.
+
+### Your profile
+
+The **Your profile** section (left side) describes you: a free-text list
+of your skills and your years of experience.
+
+Example: skills `TypeScript, Vue 3, Node.js, PostgreSQL`, experience `7`.
+
+Your profile drives the *interview chance* score below, so keep it
+honest and current.
+
+### Evaluation rules
+
+This is the filter. Every posting is checked against your rules and lands
+in one of three outcomes:
+
+- **Passed** — it satisfies your rules.
+- **Failed** — a required rule didn't match, or a dealbreaker did. Failed
+  jobs are out.
+- **Needs review** — the checks couldn't decide; a human should look.
+
+**Criteria** come in three kinds:
+
+- **Required** — the posting must match. Example: a *Canada* criterion so
+  only Canadian jobs pass.
+- **Dealbreaker** — the posting must *not* match. Example: a *No
+  agencies* criterion with the patterns `recruit` and `staffing agency` —
+  any posting that trips it fails on the spot.
+- **Preferred** — nice to have; shown for information, never decides the
+  outcome.
+
+JobRadar ships with ready-made criteria templates (remote-only, salary
+floors, regions, employment types, and more) — add one, then adjust it —
+and you can also build fully custom criteria.
+
+Each criterion is checked in up to three ways, cheapest first: a
+**keyword** check (does the text contain these words?), a **meaning**
+check (does the posting *mean* this, even in other words?), and an **AI
+judge** that reads the posting when the first two can't decide. Checking
+stops as soon as the outcome is certain, so evaluation stays fast.
+
+**Flag detectors** are the second half of the rules. Each watches for one
+kind of problem and attaches a warning to the job — they never remove a
+job by themselves:
+
+- **Scam risk** — too-good-to-be-true promises, upfront-payment requests.
+- **Fake or reposted job** — the same opening recycled over and over.
+- **Misleading remote** — advertised as remote, actually on-site.
+- **Below-market salary** — the offered range sits under what the role
+  normally pays (see *Salary benchmarks* below).
+- **Toxic culture signals** — crunch and "rockstar ninja" language.
+- **Illegal or dubious practices** — unpaid trials, discriminatory terms.
+- **Staffing intermediary** — a recruiter or staffing agency standing
+  between you and the actual employer.
+
+Every detector can be switched off in the **Flag detectors** section if
+it doesn't match what you care about.
+
+Click **Evaluate all** to (re)run the rules over everything you've
+collected.
+
+### Scoring
+
+Click **Score all** to grade the jobs that passed. Every job gets two
+0–100 scores:
+
+- **Interview chance** — "can *I* land an interview?" Compares the
+  posting against your profile: your skills, your experience, how well
+  the role matches what you've liked before.
+- **Job quality** — "is this job legit and worth it?" Looks at the
+  posting itself: salary, clarity, red flags, and the company's
+  reputation when known.
+
+Open any job and choose **Show details** to see the full breakdown: every
+factor behind both scores, with the exact evidence that produced it —
+never just a number. Example evidence from the salary factor:
+
+> posting 85000–110000 CAD vs CA median ≈108000 for software developer
+> (p25 82000, p75 138000) — within the national range
+
+Rate jobs with the 👍 / 👎 buttons as you browse. Two things use your
+ratings: the score-all run researches the companies of your best jobs
+(see below), and once you have at least 20 ratings (at least 5 of each
+kind) scoring adds a **Learned match** factor that favors postings
+resembling the ones you rated highly. Below that threshold the factor
+simply doesn't appear. Your ratings are training data that never leaves
+your machine — the model is fitted on the spot, locally, each time.
+
+**Salary benchmarks.** JobRadar bundles approximate salary bands
+(p25 / median / p75) for nine role families in Canada (CAD) and the US
+(USD), derived from public labor statistics (Statistics Canada / Job Bank
+Canada wage reports; US Bureau of Labor Statistics OES). They are
+orientation aids dated 2026, not gospel — if you want fresher numbers,
+edit `api/src/data/salaryBenchmarks.json`. The comparison only happens
+when the posting names a salary in the matching currency; seniority in
+the title adjusts the band (junior ×0.7, senior ×1.3).
+
+### Company intel
+
+Open a job and look at the **Company intel** card to learn about the
+employer: what the company is known for, notable projects, reputation
+notes, and an overall sentiment.
+
+Research never starts on its own. If a company hasn't been researched
+yet, the card says so and offers a **Run intel** button; a researched
+company has a **Refresh** button. Research means: the AI plans a few web
+searches, reads the most relevant result pages, and writes up the card.
+Results are cached on your machine for 30 days.
+
+All research runs **one company at a time**, in the order requested —
+including the automatic research for your top 10 companies during
+**Score all**. This is deliberate: parallel AI research can exhaust a
+modest machine's memory, so JobRadar queues instead. While your company
+is being researched, its card shows a progress overlay; everything else
+stays usable.
+
+Cached intel also feeds scoring: a researched company's sentiment counts
+toward the *job quality* score, with the intel itself cited as evidence.
+
+> **Privacy:** company research is the one deliberate exception to
+> JobRadar's local-first rule. The only thing that leaves your machine
+> is the company name in a search query — never your profile, your
+> ratings, or anything about you.
+
+### Choosing the AI backend
+
+Local Ollama is the default (`LLM_PROVIDER=ollama` in `.env`). Two other
+backends exist:
+
+**llama.cpp on your machine** — if you already run `llama-server`:
 
 ```bash
-# Current config + sources with masked credential state (never raw values):
-curl http://localhost:3001/v1/ingestion/config
-
-# Save preferences / a credential:
-curl -X PUT http://localhost:3001/v1/ingestion/config -H 'Content-Type: application/json' \
-  -d '{"keywords":"software engineer","country":"ca","enabledSources":["hackernews","adzuna","remoteok"],
-       "credentials":{"adzuna":{"app_id":"...","app_key":"..."}}}'
-
-# Run ingestion with the saved config (or pass the same preference fields as one-off overrides):
-curl -X POST http://localhost:3001/v1/ingestion/run -H 'Content-Type: application/json' -d '{}'
-
-# The Phase 1 curl path still works (HN by default; Adzuna joins when credentials exist):
-curl -X POST http://localhost:3001/v1/ingest -H 'Content-Type: application/json' -d '{}'
-
-# Browse results:
-curl http://localhost:3001/v1/jobs?limit=20
-```
-
-## Choosing the LLM backend
-
-**Local Ollama (default)** — private, free:
-
-```bash
-LLM_PROVIDER=ollama
-```
-
-**llama.cpp on the Docker host** — for the machine that already runs `llama-server`.
-Start it on the host first, e.g.:
-
-```bash
+# start it on your machine first, e.g.:
 llama-server -m /path/to/model.gguf --port 8080
 ```
 
-then:
-
 ```bash
 LLM_PROVIDER=llamacpp
-# LLAMACPP_BASE_URL defaults to http://host.docker.internal:8080,
-# which the compose file maps to the host via host-gateway.
+# LLAMACPP_BASE_URL defaults to http://host.docker.internal:8080
 ```
 
-**Hosted API** — stronger models, less private, usage cost:
+**A hosted, OpenAI-compatible API** — stronger models, but less private
+and usually paid:
 
 ```bash
 LLM_PROVIDER=hosted
@@ -186,195 +308,88 @@ HOSTED_API_KEY=<key>
 LLM_MODEL=<model name>
 ```
 
-**Smart routing:** leave `LLM_PROVIDER=ollama` and set `LLM_DEEP_PROVIDER=hosted`
-(+ key) to triage locally for free while deep company analysis uses the hosted model.
-`LLM_DEEP_MODEL` optionally picks a different model for the deep route.
+You can also mix: keep `LLM_PROVIDER=ollama` for everyday checks and set
+`LLM_DEEP_PROVIDER=hosted` (plus its key) so only company research — the
+deep route — uses the stronger model. `LLM_DEEP_MODEL` picks a different
+model for that route.
 
-**Networking note:** the analyzer's HTTP client ignores ambient proxy environment
-variables (`trust_env=False`). Its backends are infrastructure you control — local
-Ollama, host llama.cpp, or an explicitly configured endpoint — and a system-wide
-proxy would only reroute or break those calls.
+After changing `.env`, restart with `./run.sh` so the services pick the
+new settings up.
 
-## Criteria engine (Phase 2)
-
-```bash
-# List the 10 premade templates (grouped: work mode, salary, location, domain, employment type)
-curl http://localhost:3001/v1/criteria/templates
-
-# Add a template (kind/validator/config editable in the dialog)
-curl -X POST http://localhost:3001/v1/criteria -H 'Content-Type: application/json' \
-  -d '{"templateId":"remote-only","kind":"required"}'
-
-# Or a fully custom criterion
-curl -X POST http://localhost:3001/v1/criteria -H 'Content-Type: application/json' \
-  -d '{"name":"No agencies","kind":"dealbreaker","validator":"keyword",
-       "config":{"patterns":["recruit","staffing agency"],"match":"any","target":"description"}}'
-
-# Evaluate one job / all jobs (persisted to job_evaluations)
-curl -X POST http://localhost:3001/v1/jobs/1/evaluate
-curl -X POST http://localhost:3001/v1/evaluate-all -H 'Content-Type: application/json' -d '{"limit":200}'
-
-# Filter results by outcome
-curl "http://localhost:3001/v1/jobs?outcome=passed&limit=20"
-curl "http://localhost:3001/v1/jobs?outcome=needs_review&limit=20"
-```
-
-Cascade order is **keyword → semantic → LLM judge**. A failed `required`
-criterion or a passed `dealbreaker` knocks the job out immediately (expensive
-validators are skipped). `uncertain` never knocks out — the job lands in
-`needs_review`. `preferred` criteria are informational only. Semantic
-statements are embedded once at criterion creation (cached in config); the
-analyzer must be reachable for that and for any `llm_judge` evaluation —
-otherwise the API returns a clear 503, no silent degradation.
-
-## Scoring & flags (Phase 3)
+### Starting and stopping
 
 ```bash
-# Score one job / all jobs (scores + flags persisted)
-curl -X POST http://localhost:3001/v1/jobs/1/score
-curl -X POST http://localhost:3001/v1/score-all -H 'Content-Type: application/json' -d '{"limit":200}'
-
-# Top scores first, and hide anything carrying a flag
-curl "http://localhost:3001/v1/jobs?sort=top&limit=20"
-curl "http://localhost:3001/v1/jobs?hide_flagged=1&limit=20"
-
-# Thumbs feedback (up / down / null to clear), stored locally
-curl -X PUT http://localhost:3001/v1/jobs/1/feedback -H 'Content-Type: application/json' -d '{"feedback":"up"}'
-
-# Your profile (drives interview-chance scoring), stored locally
-curl http://localhost:3001/v1/profile
-curl -X PATCH http://localhost:3001/v1/profile -H 'Content-Type: application/json' \
-  -d '{"skillsText":"TypeScript, Vue, Postgres","yearsExperience":7}'
-
-# Flag detectors: list config, enable/disable one
-curl http://localhost:3001/v1/flags/config
-curl -X PATCH http://localhost:3001/v1/flags/config -H 'Content-Type: application/json' \
-  -d '{"type":"staffing_intermediary","enabled":false}'
+./run.sh                 # start everything (also rebuilds if code changed)
+docker compose stop      # stop, keeping your data
 ```
 
-Two 0–100 scores per job: **interview chance** ("can *I* land an interview?",
-profile-driven) and **job quality** ("is this job legit and worth it?"),
-combined 55/45. Every score ships a per-factor breakdown with exact evidence;
-missing data narrows the breakdown instead of penalizing. Flags
-(`scam_risk`, `fake_repost`, `remote_misleading`, `salary_below_market`,
-`toxic_culture`, `illegal_practice`, `staffing_intermediary`) run a
-keyword → semantic → LLM cascade and are all warning severity (plus an
-informational note for undisclosed salary) — they inform, never auto-reject.
-
-Scoring needs the analyzer for embeddings only when your profile has skills
-text or an analyzer-capable flag is enabled; otherwise it runs fully offline.
-When the analyzer *is* needed but unreachable, scoring fails loudly (503).
-
-**Salary benchmarks (Phase 6).** A bundled table
-(`api/src/data/salaryBenchmarks.json`) holds approximate annual p25 / median /
-p75 bands for nine role families in Canada (CAD) and the US (USD), derived
-from public labor statistics (Statistics Canada / Job Bank Canada wage
-reports; US Bureau of Labor Statistics OES). They are **orientation-only
-approximations dated 2026** — edit the JSON to refresh them. When a posting
-discloses a salary, its country is detected, and the currency matches, the
-salary factor's evidence shows the comparison ("posting 85000–110000 CAD vs
-CA median ≈108000 for software developer (p25 82000, p75 138000) — within the
-national range"), and the `salary_below_market` flag fires with that evidence
-when the whole range sits below the benchmark p25 (the older flat-floor check
-remains as fallback when no benchmark applies). Seniority in the title scales
-the band (junior ×0.7, senior ×1.3).
-
-**Learned match (Phase 6).** Your thumbs up/down ratings are training labels.
-Once you have at least 20 ratings with at least 5 of each kind, scoring adds
-a **Learned match** factor (weight 0.15) to interview chance: the analyzer
-embeds your labeled postings and the ones being scored, fits a logistic
-regression on the spot (nothing is stored or sent anywhere), and reports how
-much each posting resembles the ones you rated highly. Its evidence cites
-your label counts ("learned from 24 of your ratings (12 👍 / 12 👎); …").
-Below the threshold the factor is simply absent — scores behave exactly as
-before.
-
-## Company intel (Phase 4–5)
-
-The API's Hermes agent researches companies on demand: it asks the LLM for
-search queries, runs up to 4 web searches, reads up to 6 result pages, and
-synthesizes `{summary, knownFor, notableProjects, reputationNotes,
-sentiment}`. The result is cached locally per company for 30 days and shown
-as a "Company intel" card (sentiment badge, known-for chips, notable
-projects, research date).
-
-Research never starts on its own. Opening a job only reads the cache; a
-company with no cached intel shows "No company intel has been run yet." with
-a **Run intel** button, and a cached company has a **Refresh** button that
-enqueues a re-run. Score-all also enqueues research for the top 10 companies
-among jobs that passed the cascade. All research — button or score-all —
-runs through a single FIFO queue in the API, one company at a time: stacked
-Hermes runs exhausted a test machine's RAM during Phase 4 acceptance, so the
-app serializes them itself instead of depending on host LLM settings. While
-a run is active, other job cards can't be expanded, and the open detail
-panel shows a spinner under a grey overlay until its company's research
-finishes.
-
-Cached intel feeds the **company reputation** quality factor (weight 0.2):
-positive/mixed/negative sentiment scores 0.85/0.55/0.25; with no cached intel
-the factor stays informational and existing scores are unchanged.
-
-**Privacy note:** web search is a deliberate, narrow exception to JobRadar's
-local-first rule. The only thing that leaves your machine is the company
-name in a search query — no profile data, no job history, nothing else. All
-intel is cached locally; nothing is reported anywhere.
-
-```bash
-# Cached intel for a company (read-only; status: fresh|stale|none|queued|researching|failed)
-curl http://localhost:3001/v1/companies/Acme%20Corp/intel
-# Enqueue research for a company (202; drains one at a time through the queue)
-curl -X POST http://localhost:3001/v1/companies/Acme%20Corp/research
-# Queue snapshot: which company is researching now, which are waiting
-curl http://localhost:3001/v1/companies/research-state
-```
-
-## Tests
-
-```bash
-cd api && npm test          # vitest: ingestion + config + criteria + scoring + benchmarks + learned match + company intel (164 tests)
-cd analyzer && python -m pytest tests/ -v   # 32 tests
-cd client && npm run typecheck && npm run build
-```
-
-Tests mock the embedding model and LLM — no weights are downloaded.
+To update: get the new code (for example `git pull`, or a fresh download),
+then run `./install.sh` again — it keeps your `.env` and your data — or
+just `./run.sh`.
 
 ## Troubleshooting
 
-**`could not select device driver "nvidia" with capabilities: [[gpu]]`** —
-the `desktop-linux` daemon runs inside Docker Desktop's VM, which cannot see
-the host NVIDIA driver, so the `llm` service's GPU reservation fails. Fallback:
-skip the `llm` service entirely. Phase 1 doesn't need it (embeddings run on
-CPU in the analyzer; point `OLLAMA_BASE_URL` at a host Ollama if you want the
-LLM route, e.g. `http://host.docker.internal:11434`):
+**The dashboard doesn't open / a service never answers.**
+Make sure Docker is running, then look at the logs:
 
 ```bash
-docker compose up --build --no-deps analyzer api
+docker compose logs
 ```
 
-**Manual smoke test** (after the stack is up, no LLM required):
+Re-running `./install.sh` (or `./run.sh`) is always safe and fixes most
+half-started states.
+
+**"Port already in use" (5173, 3001, or 8000).**
+Another copy of JobRadar — or another app — is holding the port. If you
+have JobRadar in two folders, stop the other copy first:
 
 ```bash
-# Analyzer alive? (triage_reachable reflects your Ollama/LLM setup)
-curl http://localhost:8000/health
-# API alive? ("analyzer": true means the api can reach the analyzer)
-curl http://localhost:3001/health
-# Run an ingestion (HN "Who is hiring?"; Adzuna joins in when credentials exist)
-curl -X POST http://localhost:3001/v1/ingest -H 'Content-Type: application/json' -d '{}'
-# Inspect results
-curl "http://localhost:3001/v1/jobs?limit=20"
-curl http://localhost:3001/v1/ingestion-runs
+docker compose stop   # run inside the other folder
 ```
 
-## What's NOT built yet (post-MVP)
+**Scoring or evaluation fails with an error (503), or the analyzer says
+the AI is unreachable.**
+JobRadar refuses to guess: when a check needs the AI and the AI isn't
+there, it fails loudly instead of silently producing weaker results.
+Almost always this means Ollama isn't running or the model wasn't
+downloaded:
 
-- LinkedIn / Glassdoor sources (login walls + bot detection; deliberately deferred)
+```bash
+ollama serve                 # if Ollama isn't running
+ollama pull hermes3:8b       # the model named by LLM_MODEL in .env
+```
+
+**`could not select device driver "nvidia" with capabilities: [[gpu]]`**
+You're starting the optional `llm` container, whose GPU reservation
+Docker Desktop's internal VM can't satisfy. Skip that service (every
+command in this README already does) and let the Ollama on your machine
+do the AI work instead:
+
+```bash
+docker compose up -d --build --no-deps analyzer api client
+```
+
+**Adzuna never fetches anything / shows as skipped.**
+It has no credentials yet. Add the free app ID and key in the **Search
+the web** panel or in `.env`, then run a search again. The other five
+sources need no key.
+
+**Company research seems slow.**
+It runs one company at a time on purpose, and each company takes a few
+searches and page reads. The queue drains in order — a company you start
+now may wait behind a few started earlier (for example by **Score
+all**). Cached results open instantly.
+
+**The first build takes forever.**
+Normal — the first build downloads several GB of dependencies. Later
+starts take seconds.
 
 ## License
 
 JobRadar is free software, licensed under the **GNU Affero General Public
-License v3.0 or later** (AGPL-3.0-or-later). See [LICENSE](./LICENSE) for the
-full text.
+License v3.0 or later** (AGPL-3.0-or-later). See [LICENSE](./LICENSE) for
+the full text.
 
 In short: anyone may use, modify, and share it, but any modified version —
-including one run as a network service — must stay open source under the same
-license. It can never be taken closed-source.
+including one run as a network service — must stay open source under the
+same license. It can never be taken closed-source.

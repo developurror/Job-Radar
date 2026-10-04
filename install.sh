@@ -87,7 +87,7 @@ case "$OS_NAME" in
     warn 'macOS detected. This setup is expected to work with Docker Desktop but is untested.'
     ;;
   MINGW*|MSYS*|CYGWIN*)
-    fail 'This looks like a Windows shell outside WSL. JobRadar on Windows runs inside WSL2: install WSL (wsl --install in PowerShell), then run this script from your WSL Ubuntu terminal. See the README "Install" section.'
+    fail 'This looks like a Windows shell outside WSL. JobRadar on Windows runs inside WSL2: install WSL (wsl --install in PowerShell), then run this script from your WSL Ubuntu terminal. See the README "Quick install" section.'
     ;;
   *)
     warn "Unrecognized system '$OS_NAME' — continuing anyway."
