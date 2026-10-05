@@ -9,6 +9,7 @@ import {
   saveSourceCredential,
 } from '../src/ingest/config.js';
 import { registerIngestionRoutes, type IngestionRouteDeps } from '../src/ingest/routes.js';
+import { buildSources } from '../src/ingest/runner.js';
 import { SOURCE_REGISTRY, getSourceDefinition } from '../src/ingest/sources/registry.js';
 
 let database: Database;
@@ -56,14 +57,13 @@ async function startApp(deps?: Partial<IngestionRouteDeps>) {
 }
 
 describe('source registry', () => {
-  it('contains all six sources in registry order', () => {
+  it('contains all five sources in registry order', () => {
     expect(SOURCE_REGISTRY.map((sourceDefinition) => sourceDefinition.id)).toEqual([
       'hackernews',
       'adzuna',
       'remoteok',
       'arbeitnow',
       'themuse',
-      'weworkremotely',
     ]);
   });
 
@@ -73,7 +73,7 @@ describe('source registry', () => {
       { key: 'app_id', label: 'App ID', secret: true },
       { key: 'app_key', label: 'App Key', secret: true },
     ]);
-    for (const keylessSourceId of ['remoteok', 'arbeitnow', 'themuse', 'weworkremotely']) {
+    for (const keylessSourceId of ['remoteok', 'arbeitnow', 'themuse']) {
       expect(getSourceDefinition(keylessSourceId)?.credentialFields).toEqual([]);
     }
   });
@@ -111,9 +111,28 @@ describe('ingestion config seeding and resolution', () => {
       'remoteok',
       'arbeitnow',
       'themuse',
-      'weworkremotely',
     ]);
     expect(configView.country).toBe('us');
+  });
+
+  it('tolerates unknown source ids left in a saved config by an older version', () => {
+    // Simulate a config saved when 'weworkremotely' still existed: the id
+    // sits in the stored row, and no read path may trip over it.
+    saveIngestionConfig(database, {
+      keywords: null,
+      country: null,
+      provinceState: null,
+      city: null,
+      field: null,
+      enabledSources: ['hackernews', 'weworkremotely', 'remoteok'],
+    });
+    expect(getIngestionConfig(database).enabledSources).toEqual(['hackernews', 'remoteok']);
+    const resolvedConfig = resolveIngestionConfig(database);
+    expect(resolvedConfig.enabledSources).toEqual(['hackernews', 'remoteok']);
+    expect(buildSources(resolvedConfig).map((source) => source.name)).toEqual([
+      'hackernews',
+      'remoteok',
+    ]);
   });
 
   it('resolves with precedence override beats saved beats env', () => {
@@ -192,7 +211,6 @@ describe('ingestion config routes', () => {
         'remoteok',
         'arbeitnow',
         'themuse',
-        'weworkremotely',
       ]);
       const adzunaSource = responseBody.sources.find(
         (sourceEntry) => sourceEntry.id === 'adzuna',

@@ -136,7 +136,7 @@ fi
 # ---------------------------------------------------------------- services
 step 'Starting JobRadar'
 mkdir -p data
-docker compose up -d --build --no-deps analyzer api client \
+docker compose up -d --build --no-deps analyzer api client bot \
   || fail 'Docker Compose failed to build or start the services. Scroll up for the Docker error; running ./install.sh again is safe and often fixes half-started states.'
 ok 'Services started.'
 

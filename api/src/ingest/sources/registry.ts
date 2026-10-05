@@ -6,7 +6,6 @@ import { fetchArbeitnowJobs } from './arbeitnow.js';
 import { fetchHackerNewsJobs } from './hackernews.js';
 import { fetchRemoteOkJobs } from './remoteok.js';
 import { fetchTheMuseJobs } from './themuse.js';
-import { fetchWeWorkRemotelyJobs } from './weworkremotely.js';
 
 export interface CredentialFieldDefinition {
   key: string;
@@ -74,12 +73,6 @@ export const SOURCE_REGISTRY: SourceDefinition[] = [
     displayName: 'The Muse',
     credentialFields: [],
     fetchRaw: (config, fetchImpl = fetch) => fetchTheMuseJobs(config, fetchImpl),
-  },
-  {
-    id: 'weworkremotely',
-    displayName: 'We Work Remotely',
-    credentialFields: [],
-    fetchRaw: (config, fetchImpl = fetch) => fetchWeWorkRemotelyJobs(config, fetchImpl),
   },
 ];
 
