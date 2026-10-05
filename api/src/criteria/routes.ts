@@ -6,6 +6,7 @@ import type { Database } from '../db.js';
 import { jobEmbeddings, jobs } from '../schema.js';
 import { criterionNeedsAnalyzer, evaluateJobCascade, validateCriterionInput } from './evaluator.js';
 import type { ValidatorDeps } from './evaluator.js';
+import { getUserProfile } from '../scoring/store.js';
 import { deleteCriterion, getCriterion, insertCriterion, listActiveCriteria, listCriteria, listJobsForEvaluation, saveJobEvaluation, updateCriterion } from './store.js';
 import { CRITERION_TEMPLATES, instantiateTemplate } from './templates.js';
 import type { CriterionKind, EvaluationOutcome, ValidatorName } from './types.js';
@@ -23,6 +24,14 @@ export function buildValidatorDeps(database: Database): ValidatorDeps {
     },
     generateText: (prompt: string, maxTokens: number) => generateText(prompt, maxTokens),
   };
+}
+
+/** Spoken languages for the built-in evaluation rule: empty unless the
+ *  profile lists languages AND the rule toggle is on (upgrade spec §2.7). */
+function spokenLanguagesForEvaluation(database: Database): string[] {
+  const profile = getUserProfile(database);
+  if (!profile || !profile.languageRuleEnabled) return [];
+  return profile.spokenLanguages;
 }
 
 async function ensureAnalyzerForEvaluation(database: Database): Promise<string | null> {
@@ -163,7 +172,12 @@ export function registerCriteriaRoutes(app: Express, database: Database): void {
       return;
     }
     try {
-      const evaluation = await evaluateJobCascade(job, listActiveCriteria(database), buildValidatorDeps(database));
+      const evaluation = await evaluateJobCascade(
+        job,
+        listActiveCriteria(database),
+        buildValidatorDeps(database),
+        spokenLanguagesForEvaluation(database),
+      );
       saveJobEvaluation(database, jobId, evaluation);
       response.json({ jobId, ...evaluation });
     } catch (error) {
@@ -181,6 +195,7 @@ export function registerCriteriaRoutes(app: Express, database: Database): void {
     try {
       const activeCriteria = listActiveCriteria(database);
       const deps = buildValidatorDeps(database);
+      const spokenLanguages = spokenLanguagesForEvaluation(database);
       const evaluatedJobs = listJobsForEvaluation(database, limit);
       const outcomeCounts: Record<EvaluationOutcome, number> = {
         passed: 0,
@@ -188,7 +203,7 @@ export function registerCriteriaRoutes(app: Express, database: Database): void {
         needs_review: 0,
       };
       for (const job of evaluatedJobs) {
-        const evaluation = await evaluateJobCascade(job, activeCriteria, deps);
+        const evaluation = await evaluateJobCascade(job, activeCriteria, deps, spokenLanguages);
         saveJobEvaluation(database, job.id, evaluation);
         outcomeCounts[evaluation.outcome] += 1;
       }

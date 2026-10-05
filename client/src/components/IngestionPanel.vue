@@ -6,7 +6,7 @@
       @click="searchExpanded = !searchExpanded"
     >
       <v-icon icon="mdi-magnify" class="mr-2" />
-      <span class="text-subtitle-1 font-weight-medium">Search the web</span>
+      <span class="text-subtitle-1 font-weight-medium">{{ t('ingestion.title') }}</span>
       <v-spacer />
       <v-icon :icon="searchExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'" />
     </div>
@@ -15,7 +15,7 @@
         <v-divider />
         <v-card-text>
           <p class="text-caption text-medium-emphasis mb-3">
-            Stored locally; these settings override the .env defaults.
+            {{ t('ingestion.storedLocallyNote') }}
           </p>
 
           <v-alert v-if="ingestionStore.errorMessage" type="error" density="compact" class="mb-3">
@@ -29,13 +29,13 @@
             class="mb-3"
           >
             <div class="font-weight-bold mb-1">
-              {{ failedRunResults.length }} source{{ failedRunResults.length === 1 ? '' : 's' }} failed
+              {{ t('ingestion.sourcesFailed', failedRunResults.length) }}
             </div>
             <div
               v-for="result in failedRunResults"
               :key="result.source"
             >
-              {{ sourceDisplayName(result.source) }}: {{ result.error ?? 'search failed' }}
+              {{ sourceDisplayName(result.source) }}: {{ result.error ?? t('ingestion.searchFailed') }}
             </div>
           </v-alert>
 
@@ -49,8 +49,8 @@
               v-for="result in successfulRunResults"
               :key="result.source"
             >
-              {{ sourceDisplayName(result.source) }}: {{ result.fetched }} fetched ·
-              {{ result.new }} new · {{ result.duplicates }} duplicates
+              {{ sourceDisplayName(result.source) }}:
+              {{ t('ingestion.fetchedSummary', { fetched: result.fetched, newCount: result.new, duplicates: result.duplicates }) }}
             </div>
           </v-alert>
 
@@ -62,7 +62,7 @@
               <v-col cols="12" md="4">
                 <v-text-field
                   v-model="keywordsText"
-                  label="Search keywords"
+                  :label="t('ingestion.keywords')"
                   density="compact"
                   hide-details
                 />
@@ -70,7 +70,7 @@
               <v-col cols="6" md="2">
                 <v-text-field
                   v-model="countryText"
-                  label="Country code (e.g. ca, us)"
+                  :label="t('ingestion.countryCode')"
                   density="compact"
                   hide-details
                 />
@@ -78,7 +78,7 @@
               <v-col cols="6" md="2">
                 <v-text-field
                   v-model="provinceStateText"
-                  label="Province / state"
+                  :label="t('ingestion.provinceState')"
                   density="compact"
                   hide-details
                 />
@@ -86,7 +86,7 @@
               <v-col cols="6" md="2">
                 <v-text-field
                   v-model="cityText"
-                  label="City"
+                  :label="t('ingestion.city')"
                   density="compact"
                   hide-details
                 />
@@ -95,14 +95,16 @@
                 <v-combobox
                   v-model="fieldDomainText"
                   :items="fieldOptions"
-                  label="Field / domain"
+                  item-title="title"
+                  item-value="value"
+                  :label="t('ingestion.fieldDomain')"
                   density="compact"
                   hide-details
                 />
               </v-col>
             </v-row>
 
-            <div class="text-subtitle-2 mt-4 mb-1">Sources</div>
+            <div class="text-subtitle-2 mt-4 mb-1">{{ t('ingestion.sources') }}</div>
             <div class="d-flex flex-wrap ga-6">
               <div
                 v-for="source in ingestionStore.sources"
@@ -136,7 +138,7 @@
                     icon="mdi-delete-outline"
                     size="small"
                     variant="text"
-                    title="Remove saved credential"
+                    :title="t('ingestion.removeCredential')"
                     @click="removeCredential(source.id, credentialField.key)"
                   />
                 </div>
@@ -146,7 +148,7 @@
               v-if="ingestionStore.sources.some((source) => source.credentialFields.length > 0)"
               class="text-caption text-medium-emphasis mt-3 mb-3"
             >
-              Stored in your local database only.
+              {{ t('ingestion.credentialsStoredLocally') }}
             </p>
 
             <div class="d-flex ga-2 mt-3">
@@ -156,7 +158,7 @@
                 :loading="ingestionStore.saving"
                 @click="saveConfig"
               >
-                Save config
+                {{ t('ingestion.saveConfig') }}
               </v-btn>
               <v-btn
                 color="primary"
@@ -165,7 +167,7 @@
                 :loading="ingestionStore.running"
                 @click="runIngestion"
               >
-                Run search
+                {{ t('ingestion.runSearch') }}
               </v-btn>
             </div>
           </template>
@@ -177,10 +179,12 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useIngestionStore } from '../stores/ingestion';
 import type { IngestionConfigUpdate, IngestionRunOverrides, SourceCredentialField } from '../types';
 
 const ingestionStore = useIngestionStore();
+const { t } = useI18n();
 
 const searchExpanded = ref(true);
 
@@ -191,7 +195,8 @@ const failedRunResults = computed(() =>
   (ingestionStore.lastRunResults ?? []).filter((result) => result.status === 'error'),
 );
 
-const fieldOptions = [
+/** Field/domain values are stored ids; only their display titles localize. */
+const FIELD_DOMAIN_IDS = [
   'software',
   'data',
   'devops',
@@ -203,6 +208,13 @@ const fieldOptions = [
   'finance',
   'operations',
 ];
+
+const fieldOptions = computed(() =>
+  FIELD_DOMAIN_IDS.map((fieldId) => ({
+    title: t(`ingestion.fields.${fieldId}`),
+    value: fieldId,
+  })),
+);
 
 const keywordsText = ref('');
 const countryText = ref('');
@@ -264,8 +276,10 @@ function setCredentialInputValue(sourceId: string, fieldKey: string, value: stri
 }
 
 function credentialPlaceholder(credentialField: SourceCredentialField): string {
-  if (!credentialField.configured) return 'not set';
-  return credentialField.maskedHint ? `saved ····${credentialField.maskedHint}` : 'saved';
+  if (!credentialField.configured) return t('ingestion.credentialNotSet');
+  return credentialField.maskedHint
+    ? t('ingestion.credentialSavedMasked', { hint: credentialField.maskedHint })
+    : t('ingestion.credentialSaved');
 }
 
 function sourceDisplayName(sourceId: string): string {

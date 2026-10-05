@@ -3,36 +3,50 @@
     <v-card>
       <v-card-title>{{ dialogTitle }}</v-card-title>
       <v-card-text>
-        <v-text-field v-model="formName" label="Name" class="mb-2" />
+        <v-text-field v-model="formName" :label="t('criterionDialog.name')" class="mb-2" />
         <v-row>
           <v-col cols="6">
-            <v-select v-model="formKind" :items="kindOptions" label="Kind" />
+            <v-select
+              v-model="formKind"
+              :items="kindOptions"
+              item-title="title"
+              item-value="value"
+              :label="t('criterionDialog.kind')"
+            />
           </v-col>
           <v-col cols="6">
             <v-select
               v-model="formValidator"
               :items="validatorOptions"
-              label="Validator"
+              item-title="title"
+              item-value="value"
+              :label="t('criterionDialog.validator')"
               :disabled="prefillFromTemplate"
             />
           </v-col>
         </v-row>
 
         <template v-if="formValidator === 'keyword'">
-          <v-radio-group v-model="keywordMode" inline label="Keyword mode">
-            <v-radio label="Patterns" value="patterns" />
-            <v-radio label="Field comparison" value="field" />
+          <v-radio-group v-model="keywordMode" inline :label="t('criterionDialog.keywordMode')">
+            <v-radio :label="t('criterionDialog.patternsMode')" value="patterns" />
+            <v-radio :label="t('criterionDialog.fieldComparisonMode')" value="field" />
           </v-radio-group>
           <template v-if="keywordMode === 'patterns'">
-            <v-textarea v-model="patternsText" label="Patterns (one per line)" rows="3" />
-            <v-select v-model="patternMatch" :items="['any', 'all']" label="A posting passes when" />
+            <v-textarea v-model="patternsText" :label="t('criterionDialog.patternsLabel')" rows="3" />
+            <v-select
+              v-model="patternMatch"
+              :items="patternMatchOptions"
+              item-title="title"
+              item-value="value"
+              :label="t('criterionDialog.postingPassesWhen')"
+            />
           </template>
           <template v-else>
-            <v-select v-model="fieldName" :items="fieldOptions" label="Job field" />
-            <v-select v-model="fieldOperator" :items="operatorOptions" label="Operator" />
+            <v-select v-model="fieldName" :items="fieldOptions" :label="t('criterionDialog.jobField')" />
+            <v-select v-model="fieldOperator" :items="operatorOptions" :label="t('criterionDialog.operator')" />
             <v-text-field
               v-model="fieldValueText"
-              label="Value (empty = missing; comma-separated for 'in')"
+              :label="t('criterionDialog.fieldValueLabel')"
             />
           </template>
         </template>
@@ -40,7 +54,7 @@
         <template v-if="formValidator === 'semantic'">
           <v-textarea
             v-model="statementText"
-            label="Statement to compare postings against"
+            :label="t('criterionDialog.statementLabel')"
             rows="3"
           />
           <v-slider
@@ -49,16 +63,16 @@
             max="1"
             step="0.05"
             thumb-label
-            label="Similarity threshold"
+            :label="t('criterionDialog.similarityThreshold')"
           />
         </template>
 
         <template v-if="formValidator === 'llm_judge'">
           <v-textarea
             v-model="questionText"
-            label="Question for the LLM judge"
+            :label="t('criterionDialog.judgeQuestionLabel')"
             rows="3"
-            placeholder="e.g. Does this posting describe a genuinely remote role?"
+            :placeholder="t('criterionDialog.judgeQuestionPlaceholder')"
           />
         </template>
 
@@ -68,8 +82,8 @@
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn @click="closeDialog">Cancel</v-btn>
-        <v-btn color="primary" :loading="saving" @click="submitForm">Create</v-btn>
+        <v-btn @click="closeDialog">{{ t('criterionDialog.cancel') }}</v-btn>
+        <v-btn color="primary" :loading="saving" @click="submitForm">{{ t('criterionDialog.create') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -77,6 +91,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useCriteriaStore } from '../stores/criteria';
 import type { CriterionKind, CriterionTemplate, ValidatorName } from '../types';
 
@@ -91,9 +106,21 @@ const emit = defineEmits<{
 }>();
 
 const criteriaStore = useCriteriaStore();
+const { t, te } = useI18n();
 
-const kindOptions: CriterionKind[] = ['required', 'preferred', 'dealbreaker'];
-const validatorOptions: ValidatorName[] = ['keyword', 'semantic', 'llm_judge'];
+const KIND_VALUES: CriterionKind[] = ['required', 'preferred', 'dealbreaker'];
+const VALIDATOR_VALUES: ValidatorName[] = ['keyword', 'semantic', 'llm_judge'];
+
+const kindOptions = computed(() =>
+  KIND_VALUES.map((kind) => ({ title: t(`criteria.kinds.${kind}`), value: kind })),
+);
+const validatorOptions = computed(() =>
+  VALIDATOR_VALUES.map((validator) => ({ title: t(`criteria.validators.${validator}`), value: validator })),
+);
+const patternMatchOptions = computed(() => [
+  { title: t('criterionDialog.matchAny'), value: 'any' },
+  { title: t('criterionDialog.matchAll'), value: 'all' },
+]);
 const fieldOptions = [
   'salary_min',
   'salary_max',
@@ -121,9 +148,12 @@ const saving = ref(false);
 const formError = ref<string | null>(null);
 
 const prefillFromTemplate = computed(() => props.template !== null && props.template !== undefined);
-const dialogTitle = computed(() =>
-  prefillFromTemplate.value ? `Add "${props.template?.name}"` : 'New criterion',
-);
+const dialogTitle = computed(() => {
+  if (!prefillFromTemplate.value || !props.template) return t('criterionDialog.newCriterion');
+  const catalogKey = `templates.${props.template.id}.name`;
+  const displayName = te(catalogKey) ? t(catalogKey) : props.template.name;
+  return t('criterionDialog.addTemplate', { name: displayName });
+});
 
 function resetForm() {
   const template = props.template;

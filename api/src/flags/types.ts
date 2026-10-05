@@ -8,6 +8,7 @@ export const FLAG_TYPES = [
   'toxic_culture',
   'illegal_practice',
   'staffing_intermediary',
+  'quebec_language_law',
 ] as const;
 
 export type FlagType = (typeof FLAG_TYPES)[number];
@@ -31,4 +32,5 @@ export const FLAG_LABELS: Record<FlagType, string> = {
   toxic_culture: 'Toxic culture',
   illegal_practice: 'Illegal practice',
   staffing_intermediary: 'Staffing intermediary',
+  quebec_language_law: 'Québec language law',
 };

@@ -270,12 +270,16 @@ export function registerScoringRoutes(
   /** The single-row user profile used by interview-chance scoring. */
   app.get('/v1/profile', (_req, res) => {
     const profile = getUserProfile(database);
-    res.json(profile ?? { skillsText: null, yearsExperience: null });
+    res.json(
+      profile ?? { skillsText: null, yearsExperience: null, spokenLanguages: [], languageRuleEnabled: true },
+    );
   });
 
   app.patch('/v1/profile', (req, res) => {
     const skillsText = req.body?.skillsText;
     const yearsExperience = req.body?.yearsExperience;
+    const spokenLanguages = req.body?.spokenLanguages;
+    const languageRuleEnabled = req.body?.languageRuleEnabled;
     if (skillsText !== undefined && skillsText !== null && typeof skillsText !== 'string') {
       res.status(400).json({ error: 'skillsText must be a string or null' });
       return;
@@ -288,11 +292,31 @@ export function registerScoringRoutes(
       res.status(400).json({ error: 'yearsExperience must be a non-negative number or null' });
       return;
     }
+    if (
+      spokenLanguages !== undefined &&
+      (!Array.isArray(spokenLanguages) ||
+        spokenLanguages.some((entry) => typeof entry !== 'string' || entry.trim() === ''))
+    ) {
+      res.status(400).json({ error: 'spokenLanguages must be an array of language codes' });
+      return;
+    }
+    if (languageRuleEnabled !== undefined && typeof languageRuleEnabled !== 'boolean') {
+      res.status(400).json({ error: 'languageRuleEnabled must be a boolean' });
+      return;
+    }
     const current = getUserProfile(database);
     saveUserProfile(database, {
       skillsText: skillsText !== undefined ? skillsText : (current?.skillsText ?? null),
       yearsExperience:
         yearsExperience !== undefined ? yearsExperience : (current?.yearsExperience ?? null),
+      spokenLanguages:
+        spokenLanguages !== undefined
+          ? [...new Set((spokenLanguages as string[]).map((entry) => entry.trim().toLowerCase()))]
+          : (current?.spokenLanguages ?? []),
+      languageRuleEnabled:
+        languageRuleEnabled !== undefined
+          ? languageRuleEnabled
+          : (current?.languageRuleEnabled ?? true),
     });
     res.json(getUserProfile(database));
   });
