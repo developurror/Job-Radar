@@ -19,6 +19,7 @@ import {
 import { JobRadarApiClient } from './apiClient.js';
 import { resolveBotLocale, translate } from './catalog.js';
 import { loadBotConfig, type BotConfig } from './config.js';
+import { applyBotPresence } from './presence.js';
 import {
   handleForgetCommand,
   handleHelpCommand,
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
     } catch (error) {
       console.error('Failed to register /jobradar commands:', error);
     }
+    await applyBotPresence(readyClient.user);
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
