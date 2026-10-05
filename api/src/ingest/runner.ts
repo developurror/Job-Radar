@@ -10,6 +10,7 @@ import {
   type ResolvedIngestionConfig,
 } from './config.js';
 import { getSourceDefinition } from './sources/registry.js';
+import { redactSensitiveUrlParams } from '../redactSensitiveUrlParams.js';
 
 export interface SourceDefinition {
   name: string;
@@ -209,8 +210,16 @@ export async function ingestSource(
       duplicateCount,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`ingestion failed for source "${source.name}":`, error);
+    // Source errors can embed request URLs carrying API credentials
+    // (Adzuna's app_id/app_key); redact before the message is logged or
+    // stored on the run record, where it is shown on the dashboard.
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = redactSensitiveUrlParams(rawMessage);
+    const logDetail =
+      error instanceof Error && error.stack
+        ? redactSensitiveUrlParams(error.stack)
+        : message;
+    console.error(`ingestion failed for source "${source.name}":`, logDetail);
     return finishRun({ status: 'error', error: message });
   }
 }

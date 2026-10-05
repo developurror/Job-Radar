@@ -211,4 +211,32 @@ describe('ingestSource failure logging', () => {
     );
     consoleErrorSpy.mockRestore();
   });
+
+  it('redacts API credentials in the logged, returned, and stored error', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const credentialSource: SourceDefinition = {
+      name: 'adzuna',
+      fetchRaw: async () => {
+        throw new Error(
+          'Adzuna API request failed: 404 for https://api.adzuna.com/v1/api/jobs/canada/search/1?app_id=TESTID123&app_key=TESTKEY123&results_per_page=50 — {"exception":"UNSUPPORTED_COUNTRY"}',
+        );
+      },
+    };
+    const result = await ingestSource(credentialSource, makeDeps());
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('app_id=***');
+    expect(result.error).toContain('app_key=***');
+    expect(result.error).not.toContain('TESTID123');
+    expect(result.error).not.toContain('TESTKEY123');
+
+    const runs = database.select().from(ingestionRuns).all();
+    expect(runs[0].error).toContain('app_key=***');
+    expect(runs[0].error).not.toContain('TESTKEY123');
+
+    const loggedText = consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(loggedText).toContain('app_key=***');
+    expect(loggedText).not.toContain('TESTKEY123');
+    consoleErrorSpy.mockRestore();
+  });
 });

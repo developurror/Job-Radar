@@ -7,6 +7,7 @@
  * so the intel endpoint can report them until the next enqueue.
  */
 import { normalizeCompanyName, type ResearchStateResponse } from './types.js';
+import { redactSensitiveUrlParams } from '../redactSensitiveUrlParams.js';
 
 export interface CompanyResearchQueue {
   enqueueResearch(displayName: string): 'queued' | 'researching';
@@ -45,9 +46,16 @@ export function createCompanyResearchQueue(
         startNextResearch();
       },
       (error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
+        // Fetched-page errors can embed URLs; keep credentials out of the
+        // stored failure message and the log, same rule as ingestion.
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        const message = redactSensitiveUrlParams(rawMessage);
         failureMessages.set(nextCompany.key, message);
-        console.error(`company research failed for "${nextCompany.displayName}":`, error);
+        const logDetail =
+          error instanceof Error && error.stack
+            ? redactSensitiveUrlParams(error.stack)
+            : message;
+        console.error(`company research failed for "${nextCompany.displayName}":`, logDetail);
         activeCompany = null;
         startNextResearch();
       },
