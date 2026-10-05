@@ -14,6 +14,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   type ChatInputCommandInteraction,
+  type InteractionEditReplyOptions,
   type Message,
   type ModalSubmitInteraction,
 } from 'discord.js';
@@ -75,6 +76,13 @@ interface FlowContext {
   locale: BotLocale;
   search: BotSearchInput;
 }
+
+/** Edits the ephemeral filter message. Message.edit() goes through
+ *  Discord's channel-messages route, where ephemeral interaction
+ *  responses do not exist (10008 Unknown Message) — the interaction
+ *  webhook (editReply) is the only route that can edit them, so every
+ *  edit in this flow goes through the owning modal-submit interaction. */
+type FilterMessageEdit = (payload: InteractionEditReplyOptions) => Promise<Message>;
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -270,12 +278,16 @@ function stageTextForStatus(status: BotSessionStatus, locale: BotLocale): string
   }
 }
 
-async function showFlowError(message: Message, locale: BotLocale, error: unknown): Promise<void> {
+async function showFlowError(
+  editFilterMessage: FilterMessageEdit,
+  locale: BotLocale,
+  error: unknown,
+): Promise<void> {
   const content =
     error instanceof ApiRequestError && error.status === null
       ? translate(locale, 'errorApiUnreachable')
       : translate(locale, 'errorGeneric');
-  await message.edit({ content, components: [], embeds: [] }).catch(() => {});
+  await editFilterMessage({ content, components: [], embeds: [] }).catch(() => {});
 }
 
 async function runFilterRound(
@@ -293,6 +305,7 @@ async function runFilterRound(
     flags: MessageFlags.Ephemeral,
   });
   const filterMessage = await modalSubmit.fetchReply();
+  const editFilterMessage: FilterMessageEdit = (payload) => modalSubmit.editReply(payload);
 
   const collector = filterMessage.createMessageComponentCollector({
     filter: (component) => component.user.id === context.userId,
@@ -327,7 +340,7 @@ async function runFilterRound(
           const skillsValue = skillsSubmit.fields.getTextInputValue('skills').trim();
           filters.skillsText = skillsValue === '' ? null : skillsValue;
           await skillsSubmit.deferUpdate();
-          await filterMessage.edit({
+          await editFilterMessage({
             content: buildFilterContent(context.locale, filters, context.hadRememberedAnswers),
             components: buildFilterComponents(context.locale, filters),
           });
@@ -352,12 +365,12 @@ async function runFilterRound(
   if (!startRequested) {
     try {
       if (endReason === 'cancel') {
-        await filterMessage.edit({
+        await editFilterMessage({
           content: translate(context.locale, 'cancelled'),
           components: [],
         });
       } else {
-        await filterMessage.edit({ components: [] });
+        await editFilterMessage({ components: [] });
       }
     } catch {
       // The interaction token may already be gone; nothing to clean up.
@@ -365,25 +378,29 @@ async function runFilterRound(
     return;
   }
 
-  await runSearchAndShowResults(modalSubmit, filterMessage, deps, { ...context, filters });
+  await runSearchAndShowResults(modalSubmit, editFilterMessage, filterMessage, deps, {
+    ...context,
+    filters,
+  });
 }
 
 async function runSearchAndShowResults(
   modalSubmit: ModalSubmitInteraction,
+  editFilterMessage: FilterMessageEdit,
   filterMessage: Message,
   deps: SessionFlowDeps,
   context: FlowContext & { filters: BotFilterInput },
 ): Promise<void> {
   const { locale } = context;
   try {
-    await filterMessage.edit({
+    await editFilterMessage({
       content: translate(locale, 'searchingWeb'),
       components: [],
       embeds: [],
     });
     await deps.apiClient.runIngestion(context.search);
   } catch (error) {
-    await showFlowError(filterMessage, locale, error);
+    await showFlowError(editFilterMessage, locale, error);
     return;
   }
 
@@ -393,7 +410,7 @@ async function runSearchAndShowResults(
       buildSessionRequest(context.userId, context.search, context.filters),
     );
   } catch (error) {
-    await showFlowError(filterMessage, locale, error);
+    await showFlowError(editFilterMessage, locale, error);
     return;
   }
   // Remembered answers are a convenience; a failed save never fails the run.
@@ -404,7 +421,7 @@ async function runSearchAndShowResults(
   let lastStageText = '';
   if (sessionInfo.alreadyRunning) {
     lastStageText = translate(locale, 'alreadyRunning');
-    await filterMessage.edit({ content: lastStageText }).catch(() => {});
+    await editFilterMessage({ content: lastStageText }).catch(() => {});
   }
 
   let finalView: BotSessionView | null = null;
@@ -414,7 +431,7 @@ async function runSearchAndShowResults(
     try {
       view = await deps.apiClient.getSession(sessionInfo.sessionId);
     } catch (error) {
-      await showFlowError(filterMessage, locale, error);
+      await showFlowError(editFilterMessage, locale, error);
       return;
     }
     if (view.status === 'done' || view.status === 'failed') {
@@ -424,7 +441,7 @@ async function runSearchAndShowResults(
     const stageText = stageTextForStatus(view.status, locale);
     if (stageText !== lastStageText) {
       lastStageText = stageText;
-      await filterMessage.edit({ content: stageText }).catch(() => {});
+      await editFilterMessage({ content: stageText }).catch(() => {});
     }
     await sleep(SESSION_POLL_INTERVAL_MS);
   }
@@ -437,24 +454,36 @@ async function runSearchAndShowResults(
     }
   }
   if (finalView === null || finalView.status === 'failed') {
-    await filterMessage
-      .edit({ content: translate(locale, 'errorGeneric'), components: [], embeds: [] })
-      .catch(() => {});
+    await editFilterMessage({
+      content: translate(locale, 'errorGeneric'),
+      components: [],
+      embeds: [],
+    }).catch(() => {});
     return;
   }
 
   const results = finalView.results ?? [];
   if (results.length === 0) {
-    await filterMessage
-      .edit({ content: translate(locale, 'resultsEmpty'), components: [], embeds: [] })
-      .catch(() => {});
+    await editFilterMessage({
+      content: translate(locale, 'resultsEmpty'),
+      components: [],
+      embeds: [],
+    }).catch(() => {});
     return;
   }
-  await showResultsPages(modalSubmit, filterMessage, context, sessionInfo.sessionId, results);
+  await showResultsPages(
+    modalSubmit,
+    editFilterMessage,
+    filterMessage,
+    context,
+    sessionInfo.sessionId,
+    results,
+  );
 }
 
 async function showResultsPages(
   modalSubmit: ModalSubmitInteraction,
+  editFilterMessage: FilterMessageEdit,
   filterMessage: Message,
   context: FlowContext,
   sessionId: number,
@@ -473,7 +502,7 @@ async function showResultsPages(
       );
     }
     const hasNextPage = builtPage.page < builtPage.pageCount - 1;
-    await filterMessage.edit({
+    await editFilterMessage({
       content: headerLines.join('\n'),
       embeds: builtPage.embeds,
       components: hasNextPage
