@@ -1,9 +1,9 @@
 <template>
   <v-card variant="outlined">
     <v-card-title class="text-subtitle-1 d-flex align-center">
-      <v-icon icon="mdi-flag-outline" size="small" class="mr-2" />Flag detectors
+      <v-icon icon="mdi-flag-outline" size="small" class="mr-2" />{{ t('flags.title') }}
     </v-card-title>
-    <v-card-subtitle>Warning flags never auto-reject. Stored locally.</v-card-subtitle>
+    <v-card-subtitle>{{ t('flags.subtitle') }}</v-card-subtitle>
     <v-card-text>
       <v-alert v-if="settingsStore.errorMessage" type="error" density="compact" class="mb-3">
         {{ settingsStore.errorMessage }}
@@ -15,7 +15,7 @@
         v-for="setting in settingsStore.flagSettings"
         :key="setting.type"
         :model-value="setting.enabled"
-        :label="setting.label"
+        :label="flagSettingLabel(setting)"
         density="compact"
         hide-details
         class="mb-1"
@@ -26,7 +26,17 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '../stores/settings';
+import type { FlagSetting } from '../types';
 
 const settingsStore = useSettingsStore();
+const { t, te } = useI18n();
+
+/** Flag names are key-mapped display labels (spec §2.2): catalog first,
+ *  the API-provided label as fallback for unknown types. */
+function flagSettingLabel(setting: FlagSetting): string {
+  const catalogKey = `flags.types.${setting.type}`;
+  return te(catalogKey) ? t(catalogKey) : setting.label;
+}
 </script>

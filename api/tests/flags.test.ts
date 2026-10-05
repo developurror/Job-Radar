@@ -234,7 +234,7 @@ describe('flag store', () => {
 
   it('defaults every flag to enabled and persists toggles', () => {
     const settings = listFlagSettings(database);
-    expect(settings).toHaveLength(7);
+    expect(settings).toHaveLength(8);
     expect(settings.every((setting) => setting.enabled)).toBe(true);
     expect(isFlagEnabled(settings, 'scam_risk')).toBe(true);
 
@@ -294,5 +294,71 @@ describe('scoreJob integration', () => {
       enabledFlagTypes: defaultFlagTypes(),
     };
     await expect(scoreJob(database, 999, scoreContext)).rejects.toThrow('not found');
+  });
+});
+
+describe('quebec_language_law detector', () => {
+  const englishOnlyDescription =
+    'We are hiring a backend engineer to join our platform team. You will design APIs, ' +
+    'write TypeScript services, review pull requests, and ship features every week. ' +
+    'Competitive salary, health benefits, and a friendly office near downtown.';
+
+  const frenchDescription =
+    'Nous sommes à la recherche d’un ingénieur logiciel pour rejoindre notre équipe de ' +
+    'développement. Vous serez responsable de la conception et du développement de nos ' +
+    'services, de la révision du code et de la collaboration avec les autres équipes. ' +
+    'Le candidat idéal possède une solide expérience en développement web et une bonne ' +
+    'connaissance des bases de données. Nous offrons un salaire compétitif, des avantages ' +
+    'sociaux et un environnement de travail stimulant au centre-ville.';
+
+  it('flags an English-only posting located in Québec', async () => {
+    const job = makeJob({
+      locationRaw: 'Montréal, QC',
+      descriptionClean: englishOnlyDescription,
+    });
+    const flags = await detectFlags(job, context(), makeDeps());
+    const quebecFlag = flags.find((flag) => flag.type === 'quebec_language_law');
+    expect(quebecFlag?.severity).toBe('warning');
+    expect(quebecFlag?.explanation).toContain('Charter of the French Language');
+    expect(quebecFlag?.evidence.join(' ')).toContain('Montréal, QC');
+  });
+
+  it('does not flag a Québec posting written in French', async () => {
+    const job = makeJob({
+      title: 'Ingénieur logiciel',
+      locationRaw: 'Québec, QC',
+      descriptionClean: frenchDescription,
+    });
+    const flags = await detectFlags(job, context(), makeDeps());
+    expect(flags.some((flag) => flag.type === 'quebec_language_law')).toBe(false);
+  });
+
+  it('does not flag a genuinely bilingual Québec posting', async () => {
+    const job = makeJob({
+      locationRaw: 'Laval, Quebec',
+      descriptionClean: `${englishOnlyDescription}\n\n${frenchDescription}`,
+    });
+    const flags = await detectFlags(job, context(), makeDeps());
+    expect(flags.some((flag) => flag.type === 'quebec_language_law')).toBe(false);
+  });
+
+  it('does not flag an English-only posting outside Québec', async () => {
+    const job = makeJob({
+      locationRaw: 'Toronto, ON',
+      descriptionClean: englishOnlyDescription,
+    });
+    const flags = await detectFlags(job, context(), makeDeps());
+    expect(flags.some((flag) => flag.type === 'quebec_language_law')).toBe(false);
+  });
+
+  it('respects the detector toggle through the flag settings', async () => {
+    const job = makeJob({
+      locationRaw: 'Gatineau, QC',
+      descriptionClean: englishOnlyDescription,
+    });
+    const enabledTypes = defaultFlagTypes();
+    enabledTypes.delete('quebec_language_law');
+    const flags = await detectFlags(job, context({ enabledTypes }), makeDeps());
+    expect(flags.some((flag) => flag.type === 'quebec_language_law')).toBe(false);
   });
 });

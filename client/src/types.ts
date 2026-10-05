@@ -97,7 +97,17 @@ export interface JobFlag {
 export interface UserProfile {
   skillsText: string | null;
   yearsExperience: number | null;
+  /** Language codes (en/fr/es/de/pt/it/zh/ar) the user speaks. */
+  spokenLanguages: string[];
+  /** Toggle for the built-in spoken-language evaluation rule (spec §2.7). */
+  languageRuleEnabled: boolean;
 }
+
+/** Criterion id of the built-in spoken-language rule in evaluation results.
+ *  Real user criteria start at id 1; 0 marks the built-in result so the
+ *  client can show its name from the i18n catalog instead of the
+ *  server-composed English name. */
+export const SPOKEN_LANGUAGE_RULE_CRITERION_ID = 0;
 
 export interface FlagSetting {
   type: string;

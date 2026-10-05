@@ -129,6 +129,8 @@ export const userProfile = sqliteTable('user_profile', {
   id: integer('id').primaryKey(),
   skillsText: text('skills_text'),
   yearsExperience: real('years_experience'),
+  spokenLanguages: text('spoken_languages'), // JSON array of language codes (upgrade spec §2.7)
+  languageRuleEnabled: integer('language_rule_enabled').notNull().default(1), // spoken-language knock-out rule toggle
   updatedAt: integer('updated_at').notNull(),
 });
 

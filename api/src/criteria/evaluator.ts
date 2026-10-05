@@ -6,6 +6,7 @@
  * - kind 'preferred'                        → recorded only; never affects the outcome
  */
 import type { DbCriterion, DbJob } from '../schema.js';
+import { evaluateSpokenLanguageRule } from './languageRequirement.js';
 import type {
   CascadeEvaluation,
   CriterionKind,
@@ -35,11 +36,15 @@ export function criterionNeedsAnalyzer(criterion: {
   return false;
 }
 
-/** Evaluate one job against the active criteria, cheapest validator first. */
+/** Evaluate one job against the active criteria, cheapest validator first.
+ *  The built-in spoken-language rule (upgrade spec §2.7) runs before the
+ *  cascade when the profile lists spoken languages: it is deterministic
+ *  (cheaper than every validator) and a failure knocks the job out. */
 export async function evaluateJobCascade(
   job: DbJob,
   activeCriteria: DbCriterion[],
   deps: ValidatorDeps,
+  spokenLanguages: string[] = [],
 ): Promise<CascadeEvaluation> {
   const orderedCriteria = [...activeCriteria].sort(
     (leftCriterion, rightCriterion) =>
@@ -48,6 +53,15 @@ export async function evaluateJobCascade(
   );
   const results: CriterionResult[] = [];
   let outcome: EvaluationOutcome = 'passed';
+  if (spokenLanguages.length > 0) {
+    const languageResult = evaluateSpokenLanguageRule(job, spokenLanguages);
+    if (languageResult) {
+      results.push(languageResult);
+      if (languageResult.verdict === 'fail') {
+        return { outcome: 'knocked_out', results };
+      }
+    }
+  }
   for (const criterion of orderedCriteria) {
     const { verdict, evidence } = await runValidator(
       criterion.validator as ValidatorName,

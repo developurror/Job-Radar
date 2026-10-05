@@ -5,7 +5,12 @@ import { api } from '../api';
 import type { FlagSetting, UserProfile } from '../types';
 
 export const useSettingsStore = defineStore('settings', () => {
-  const profile = ref<UserProfile>({ skillsText: null, yearsExperience: null });
+  const profile = ref<UserProfile>({
+    skillsText: null,
+    yearsExperience: null,
+    spokenLanguages: [],
+    languageRuleEnabled: true,
+  });
   const flagSettings = ref<FlagSetting[]>([]);
   const loading = ref(false);
   const saving = ref(false);

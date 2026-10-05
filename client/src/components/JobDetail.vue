@@ -6,7 +6,7 @@
     >
       <v-progress-circular indeterminate />
       <span class="research-overlay-label">
-        {{ intelStatus === 'queued' ? 'Research queued…' : `Researching ${companyName}…` }}
+        {{ intelStatus === 'queued' ? t('jobDetail.researchQueued') : t('jobDetail.researching', { company: companyName }) }}
       </span>
     </div>
     <div v-if="loading" class="text-center py-4">
@@ -17,14 +17,14 @@
     </v-alert>
     <div v-else>
       <div class="d-flex align-center mb-3">
-        <h4 class="text-subtitle-1">Scores</h4>
+        <h4 class="text-subtitle-1">{{ t('jobDetail.scores') }}</h4>
         <v-spacer />
         <v-btn
           size="small"
           :variant="feedback === 'up' ? 'tonal' : 'text'"
           :color="feedback === 'up' ? 'green' : undefined"
           icon="mdi-thumb-up"
-          title="Good match"
+          :title="t('common.goodMatch')"
           class="mr-1"
           @click="toggleFeedback('up')"
         />
@@ -33,18 +33,18 @@
           :variant="feedback === 'down' ? 'tonal' : 'text'"
           :color="feedback === 'down' ? 'red' : undefined"
           icon="mdi-thumb-down"
-          title="Bad match"
+          :title="t('common.badMatch')"
           class="mr-2"
           @click="toggleFeedback('down')"
         />
         <v-btn size="small" variant="outlined" :loading="scoring" @click="scoreNow">
-          {{ scores ? 'Re-score' : 'Score now' }}
+          {{ scores ? t('jobDetail.rescore') : t('jobDetail.scoreNow') }}
         </v-btn>
       </div>
       <div v-if="scores">
         <div v-for="factor in allFactors" :key="factor.name" class="mb-2">
           <div class="d-flex align-center">
-            <span class="text-body-2">{{ factor.label }}</span>
+            <span class="text-body-2">{{ factorDisplayLabel(factor) }}</span>
             <v-spacer />
             <span class="text-caption text-medium-emphasis">{{ factorScoreText(factor) }}</span>
           </div>
@@ -60,14 +60,14 @@
           </div>
         </div>
       </div>
-      <p v-else class="text-body-2 text-medium-emphasis mb-4">This job has not been scored yet.</p>
+      <p v-else class="text-body-2 text-medium-emphasis mb-4">{{ t('jobDetail.notScored') }}</p>
 
       <div v-if="flags.length > 0" class="mt-4">
-        <h4 class="text-subtitle-1 mb-2">Flags</h4>
+        <h4 class="text-subtitle-1 mb-2">{{ t('flags.heading') }}</h4>
         <v-alert
           v-for="flag in flags"
           :key="flag.id"
-          :type="flag.severity === 'info' ? 'info' : 'warning'"
+          :type="flag.severity === 'info' ? 'info' : 'error'"
           density="compact"
           variant="tonal"
           class="mb-2"
@@ -83,10 +83,10 @@
       </div>
 
       <div class="d-flex align-center mt-4 mb-3">
-        <h4 class="text-subtitle-1">Evaluation: {{ evaluation ? outcomeLabel(evaluation.outcome) : 'not evaluated' }}</h4>
+        <h4 class="text-subtitle-1">{{ t('jobDetail.evaluationHeading', { outcome: evaluation ? outcomeLabel(evaluation.outcome) : t('jobDetail.notEvaluated') }) }}</h4>
         <v-spacer />
         <v-btn size="small" variant="outlined" :loading="evaluating" @click="reevaluate">
-          {{ evaluation ? 'Re-evaluate' : 'Evaluate now' }}
+          {{ evaluation ? t('jobDetail.reevaluate') : t('jobDetail.evaluateNow') }}
         </v-btn>
       </div>
       <div v-if="evaluation">
@@ -94,29 +94,29 @@
           <v-list-item
             v-for="result in evaluation.results"
             :key="result.criterionId"
-            :title="result.criterionName"
-            :subtitle="result.evidence ?? 'no evidence'"
+            :title="criterionDisplayName(result)"
+            :subtitle="result.evidence ?? t('jobDetail.noEvidence')"
           >
             <template #prepend>
               <v-icon :icon="verdictIcon(result.verdict)" :color="verdictColor(result.verdict)" />
             </template>
             <template #append>
               <v-chip size="x-small" :color="kindColor(result.kind)" class="mr-1">
-                {{ result.kind }}
+                {{ t(`criteria.kinds.${result.kind}`) }}
               </v-chip>
-              <v-chip size="x-small" variant="outlined">{{ result.verdict }}</v-chip>
+              <v-chip size="x-small" variant="outlined">{{ t(`jobDetail.verdicts.${result.verdict}`) }}</v-chip>
             </template>
           </v-list-item>
         </v-list>
         <p class="text-caption text-medium-emphasis mt-2">
-          Evaluated {{ new Date(evaluation.evaluatedAt).toLocaleString() }}
+          {{ t('jobDetail.evaluatedAt', { date: d(evaluation.evaluatedAt, 'short') }) }}
         </p>
       </div>
-      <p v-else class="text-body-2 text-medium-emphasis">This job has not been evaluated yet.</p>
+      <p v-else class="text-body-2 text-medium-emphasis">{{ t('jobDetail.notEvaluatedYet') }}</p>
 
       <div v-if="companyName" class="mt-4">
         <div class="d-flex align-center mb-2">
-          <h4 class="text-subtitle-1">Company intel</h4>
+          <h4 class="text-subtitle-1">{{ t('jobDetail.companyIntel') }}</h4>
           <v-spacer />
           <v-chip
             v-if="intel"
@@ -125,7 +125,7 @@
             class="mr-2"
             variant="tonal"
           >
-            {{ intel.sentiment }}
+            {{ sentimentLabel(intel.sentiment) }}
           </v-chip>
           <v-btn
             size="small"
@@ -133,7 +133,7 @@
             :disabled="intelStatus === 'queued' || intelStatus === 'researching'"
             @click="startResearch"
           >
-            {{ intel ? 'Refresh' : 'Run intel' }}
+            {{ intel ? t('jobDetail.refresh') : t('jobDetail.runIntel') }}
           </v-btn>
         </div>
         <div v-if="intelLoading" class="text-center py-3">
@@ -142,7 +142,7 @@
         <div v-else-if="intel && (intelStatus === 'fresh' || intelStatus === 'stale')">
           <p class="text-body-2 mb-2">{{ intel.summary }}</p>
           <div v-if="intel.knownFor.length > 0" class="mb-2">
-            <span class="text-caption text-medium-emphasis mr-1">Known for:</span>
+            <span class="text-caption text-medium-emphasis mr-1">{{ t('jobDetail.knownFor') }}</span>
             <v-chip
               v-for="trait in intel.knownFor"
               :key="trait"
@@ -160,14 +160,14 @@
             {{ intel.reputationNotes }}
           </p>
           <p class="text-caption text-disabled">
-            Researched {{ intelFetchedAt ? new Date(intelFetchedAt).toLocaleDateString() : 'unknown date' }} · web-researched company profile
+            {{ t('jobDetail.researchedMeta', { date: intelFetchedAt ? d(intelFetchedAt, 'dateOnly') : t('jobDetail.unknownDate') }) }}
           </p>
         </div>
         <v-alert v-else-if="intelStatus === 'failed'" type="error" density="compact" class="mb-2">
-          {{ intelFailureMessage || 'Company research failed — try again.' }}
+          {{ intelFailureMessage || t('jobDetail.researchFailed') }}
         </v-alert>
         <p v-else-if="intelStatus === 'none' && !intel" class="text-body-2 text-medium-emphasis">
-          No company intel has been run yet.
+          {{ t('jobDetail.noIntelYet') }}
         </p>
         <p v-else-if="intelError" class="text-caption text-medium-emphasis">
           {{ intelError }}
@@ -179,14 +179,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { api } from '../api';
 import { useJobsStore } from '../stores/jobs';
-import type { CompanyIntel, CompanyIntelStatus, CriterionKind, CriterionVerdict, EvaluationOutcome, IntelSentiment, IntelStatusResponse, JobEvaluation, JobFeedback, JobFlag, JobScores, ScoreFactor } from '../types';
+import { SPOKEN_LANGUAGE_RULE_CRITERION_ID } from '../types';
+import type { CompanyIntel, CompanyIntelStatus, CriterionKind, CriterionResult, CriterionVerdict, EvaluationOutcome, IntelSentiment, IntelStatusResponse, JobEvaluation, JobFeedback, JobFlag, JobScores, ScoreFactor } from '../types';
 
 const props = defineProps<{ jobId: number }>();
 const emit = defineEmits<{ scored: [] }>();
 
 const jobsStore = useJobsStore();
+const { t, te, d } = useI18n();
 
 const evaluation = ref<JobEvaluation | null>(null);
 const scores = ref<JobScores | null>(null);
@@ -215,8 +218,20 @@ const allFactors = computed<ScoreFactor[]>(() => [
 ]);
 
 function factorScoreText(factor: ScoreFactor): string {
-  if (factor.score === null) return 'n/a';
-  return `${Math.round(factor.score * 100)} · weight ${factor.weight}`;
+  if (factor.score === null) return t('common.notAvailable');
+  return t('jobDetail.factorScore', { score: Math.round(factor.score * 100), weight: factor.weight });
+}
+
+/** Score-factor names are key-mapped display labels (spec §2.2): catalog
+ *  first, the API-provided label as fallback for unknown factors. */
+function factorDisplayLabel(factor: ScoreFactor): string {
+  const catalogKey = `factors.${factor.name}`;
+  return te(catalogKey) ? t(catalogKey) : factor.label;
+}
+
+function sentimentLabel(sentiment: IntelSentiment): string {
+  const catalogKey = `jobDetail.sentiments.${sentiment}`;
+  return te(catalogKey) ? t(catalogKey) : sentiment;
 }
 
 async function loadDetail() {
@@ -373,28 +388,25 @@ function scoreColor(score: number): string {
   return 'red';
 }
 
+/** Flag names are key-mapped display labels (spec §2.2): catalog first,
+ *  the stored type id as fallback for unknown types. */
 function flagLabel(type: string): string {
-  const labels: Record<string, string> = {
-    scam_risk: 'Scam risk',
-    fake_repost: 'Fake repost',
-    remote_misleading: 'Misleading remote',
-    salary_below_market: 'Salary below market',
-    toxic_culture: 'Toxic culture',
-    illegal_practice: 'Illegal practice',
-    staffing_intermediary: 'Staffing intermediary',
-  };
-  return labels[type] ?? type;
+  const catalogKey = `flags.types.${type}`;
+  return te(catalogKey) ? t(catalogKey) : type;
+}
+
+/** The built-in spoken-language rule's result carries a server-composed
+ *  English name; show its catalog name instead. User criteria names are
+ *  user-authored text and stay as stored. */
+function criterionDisplayName(result: CriterionResult): string {
+  if (result.criterionId === SPOKEN_LANGUAGE_RULE_CRITERION_ID) {
+    return t('criteria.spokenLanguageRule');
+  }
+  return result.criterionName;
 }
 
 function outcomeLabel(outcome: EvaluationOutcome): string {
-  switch (outcome) {
-    case 'passed':
-      return 'Passed';
-    case 'knocked_out':
-      return 'Failed';
-    case 'needs_review':
-      return 'Needs review';
-  }
+  return t(`outcomes.${outcome}`);
 }
 
 function verdictIcon(verdict: CriterionVerdict): string {

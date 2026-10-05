@@ -7,7 +7,7 @@
         size="small"
         :color="scoreColor(job.scores.combined)"
         class="ml-2"
-        :title="`Interview chance ${job.scores.interviewChance ?? '—'}, job quality ${job.scores.jobQuality ?? '—'}`"
+        :title="t('jobCard.scoreTooltip', { chance: job.scores.interviewChance ?? '—', quality: job.scores.jobQuality ?? '—' })"
       >
         {{ job.scores.combined }}
       </v-chip>
@@ -20,10 +20,10 @@
         <v-icon :icon="outcomeIcon(job.evaluationOutcome)" start />
         {{ outcomeLabel(job.evaluationOutcome) }}
       </v-chip>
-      <v-chip v-else size="small" variant="outlined" class="ml-2">not evaluated</v-chip>
+      <v-chip v-else size="small" variant="outlined" class="ml-2">{{ t('jobCard.notEvaluated') }}</v-chip>
     </v-card-title>
     <v-card-subtitle>
-      {{ job.companyName ?? 'Unknown company' }}
+      {{ job.companyName ?? t('jobCard.unknownCompany') }}
       <span v-if="job.locationRaw"> · {{ job.locationRaw }}</span>
       <span v-if="job.remoteClaim && job.remoteClaim !== 'unknown'"> · {{ job.remoteClaim }}</span>
       <span v-if="salaryText"> · {{ salaryText }}</span>
@@ -43,7 +43,7 @@
           rounded
           class="flex-grow-1"
         />
-        <span class="text-caption ml-2" style="width: 48px">{{ meter.value ?? 'n/a' }}</span>
+        <span class="text-caption ml-2" style="width: 48px">{{ meter.value ?? t('common.notAvailable') }}</span>
       </div>
     </v-card-text>
 
@@ -53,7 +53,7 @@
           <v-chip
             v-bind="tooltipProps"
             size="x-small"
-            :color="flag.severity === 'info' ? 'blue' : 'orange'"
+            :color="flag.severity === 'info' ? 'blue' : 'error'"
             :prepend-icon="flag.severity === 'info' ? 'mdi-information' : 'mdi-alert'"
             class="mr-1 mb-1"
           >
@@ -79,7 +79,7 @@
         class="d-flex align-center text-body-2 mb-1"
       >
         <v-icon :icon="verdictIcon(reason.verdict)" :color="verdictColor(reason.verdict)" size="small" class="mr-2" />
-        <span>{{ reason.criterionName }}</span>
+        <span>{{ criterionDisplayName(reason) }}</span>
       </div>
     </v-card-text>
     <v-card-actions>
@@ -89,7 +89,7 @@
         :disabled="jobsStore.researchLockActive && !expanded"
         @click="expanded = !expanded"
       >
-        {{ expanded ? 'Hide details' : 'Show details' }}
+        {{ expanded ? t('jobCard.hideDetails') : t('jobCard.showDetails') }}
         <v-icon :icon="expanded ? 'mdi-chevron-up' : 'mdi-chevron-down'" />
       </v-btn>
       <v-spacer />
@@ -98,7 +98,7 @@
         :variant="job.feedback === 'up' ? 'tonal' : 'text'"
         :color="job.feedback === 'up' ? 'green' : undefined"
         icon="mdi-thumb-up"
-        title="Good match"
+        :title="t('common.goodMatch')"
         @click="toggleFeedback('up')"
       />
       <v-btn
@@ -106,7 +106,7 @@
         :variant="job.feedback === 'down' ? 'tonal' : 'text'"
         :color="job.feedback === 'down' ? 'red' : undefined"
         icon="mdi-thumb-down"
-        title="Bad match"
+        :title="t('common.badMatch')"
         @click="toggleFeedback('down')"
       />
       <v-btn
@@ -118,7 +118,7 @@
         rel="noopener"
         prepend-icon="mdi-open-in-new"
       >
-        Original posting
+        {{ t('jobCard.originalPosting') }}
       </v-btn>
     </v-card-actions>
     <v-expand-transition>
@@ -132,12 +132,15 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import JobDetail from './JobDetail.vue';
 import { useJobsStore } from '../stores/jobs';
-import type { CriterionVerdict, EvaluationOutcome, JobFeedback, JobPosting } from '../types';
+import { SPOKEN_LANGUAGE_RULE_CRITERION_ID } from '../types';
+import type { CriterionResult, CriterionVerdict, EvaluationOutcome, JobFeedback, JobPosting } from '../types';
 
 const props = defineProps<{ job: JobPosting }>();
 const jobsStore = useJobsStore();
+const { t, te } = useI18n();
 
 const expanded = ref(false);
 
@@ -155,8 +158,8 @@ const topReasons = computed(() => {
 });
 
 const scoreMeters = computed(() => [
-  { label: 'Interview chance', value: props.job.scores?.interviewChance ?? null },
-  { label: 'Job quality', value: props.job.scores?.jobQuality ?? null },
+  { label: t('jobCard.interviewChance'), value: props.job.scores?.interviewChance ?? null },
+  { label: t('jobCard.jobQuality'), value: props.job.scores?.jobQuality ?? null },
 ]);
 
 function toggleFeedback(feedback: Exclude<JobFeedback, null>) {
@@ -174,17 +177,21 @@ function scoreColor(score: number): string {
   return 'red';
 }
 
+/** Flag names are key-mapped display labels (spec §2.2): catalog first,
+ *  the stored type id as fallback for unknown types. */
 function flagLabel(type: string): string {
-  const labels: Record<string, string> = {
-    scam_risk: 'Scam risk',
-    fake_repost: 'Fake repost',
-    remote_misleading: 'Misleading remote',
-    salary_below_market: 'Salary below market',
-    toxic_culture: 'Toxic culture',
-    illegal_practice: 'Illegal practice',
-    staffing_intermediary: 'Staffing intermediary',
-  };
-  return labels[type] ?? type;
+  const catalogKey = `flags.types.${type}`;
+  return te(catalogKey) ? t(catalogKey) : type;
+}
+
+/** The built-in spoken-language rule's result carries a server-composed
+ *  English name; show its catalog name instead. User criteria names are
+ *  user-authored text and stay as stored. */
+function criterionDisplayName(result: CriterionResult): string {
+  if (result.criterionId === SPOKEN_LANGUAGE_RULE_CRITERION_ID) {
+    return t('criteria.spokenLanguageRule');
+  }
+  return result.criterionName;
 }
 
 function outcomeColor(outcome: EvaluationOutcome): string {
@@ -199,14 +206,7 @@ function outcomeColor(outcome: EvaluationOutcome): string {
 }
 
 function outcomeLabel(outcome: EvaluationOutcome): string {
-  switch (outcome) {
-    case 'passed':
-      return 'passed';
-    case 'knocked_out':
-      return 'failed';
-    case 'needs_review':
-      return 'needs review';
-  }
+  return t(`outcomes.${outcome}`);
 }
 
 function outcomeIcon(outcome: EvaluationOutcome): string {

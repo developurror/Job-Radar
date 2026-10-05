@@ -100,6 +100,10 @@ export async function detectFlags(
     const flag = await detectStaffingIntermediary(job, deps);
     if (flag) flags.push(flag);
   }
+  if (enabled.has('quebec_language_law')) {
+    const flag = detectQuebecLanguageLaw(job);
+    if (flag) flags.push(flag);
+  }
   return flags;
 }
 
@@ -270,4 +274,101 @@ async function detectStaffingIntermediary(job: DbJob, deps: ValidatorDeps): Prom
     explanation:
       'This posting appears to come from a staffing intermediary rather than the direct employer.',
   });
+}
+
+/** Québec place names recognised in a posting's location text (lowercased,
+ *  accented and unaccented spellings). 'québec'/'quebec' match both the
+ *  city and the province. */
+const QUEBEC_LOCATION_NAMES = [
+  'québec',
+  'quebec',
+  'montréal',
+  'montreal',
+  'laval',
+  'gatineau',
+  'longueuil',
+  'sherbrooke',
+  'saguenay',
+  'lévis',
+  'levis',
+  'trois-rivières',
+  'trois-rivieres',
+  'terrebonne',
+  'saint-jean-sur-richelieu',
+  'repentigny',
+  'drummondville',
+  'granby',
+  'rimouski',
+  'shawinigan',
+  'chicoutimi',
+  'brossard',
+  'mirabel',
+  'blainville',
+];
+
+/** Canadian postal codes in Québec start with G, H, or J. */
+const QUEBEC_POSTAL_CODE_PATTERN = /\b[ghj]\d[a-z]\s?\d[a-z]\d\b/;
+
+function isQuebecLocation(locationText: string): boolean {
+  const loweredLocation = locationText.toLowerCase();
+  if (QUEBEC_LOCATION_NAMES.some((placeName) => loweredLocation.includes(placeName))) {
+    return true;
+  }
+  if (/\bqc\b/.test(loweredLocation)) return true;
+  return QUEBEC_POSTAL_CODE_PATTERN.test(loweredLocation);
+}
+
+/** High-frequency French words; a posting with meaningful French text hits
+ *  many of them, an English-only posting almost none. */
+const FRENCH_STOPWORDS = new Set([
+  'le', 'la', 'les', 'des', 'de', 'du', 'est', 'sont', 'nous', 'vous',
+  'une', 'dans', 'pour', 'avec', 'sur', 'qui', 'que', 'aux', 'cette',
+  'ces', 'être', 'avoir', 'plus', 'par', 'vos', 'nos', 'votre', 'notre',
+  'aussi', 'comme', 'mais', 'chez', 'entre', 'poste', 'équipe', 'travail',
+  'emploi', 'entreprise', 'candidat', 'expérience', 'compétences',
+]);
+
+const ACCENTED_CHARACTER_PATTERN = /[àâäéèêëîïôöùûüç]/;
+
+/** French "signals" needed before a posting counts as having French text.
+ *  Deliberately conservative: a genuinely bilingual posting scores dozens
+ *  (its French half), while stray French words in an English posting (a
+ *  place name, a product name) score one or two. */
+export const FRENCH_PRESENCE_SIGNAL_THRESHOLD = 10;
+
+export function countFrenchSignals(postingText: string): number {
+  const tokens = postingText.toLowerCase().split(/[^\p{L}\p{M}]+/u);
+  let signalCount = 0;
+  for (const token of tokens) {
+    if (token === '') continue;
+    if (FRENCH_STOPWORDS.has(token)) signalCount += 1;
+    else if (ACCENTED_CHARACTER_PATTERN.test(token)) signalCount += 1;
+  }
+  return signalCount;
+}
+
+export function hasMeaningfulFrench(postingText: string): boolean {
+  return countFrenchSignals(postingText) >= FRENCH_PRESENCE_SIGNAL_THRESHOLD;
+}
+
+/** Québec language-law detector (upgrade spec §2.7 item 2): a Québec-located
+ *  posting with no meaningful French in its text. Warning only — the flag
+ *  reports an inspectable absence in the posting, not a legal verdict. */
+function detectQuebecLanguageLaw(job: DbJob): DetectedFlag | null {
+  const locationText = job.locationRaw ?? '';
+  if (!isQuebecLocation(locationText)) return null;
+  const postingText = `${job.title}\n${job.descriptionClean ?? ''}`;
+  if (hasMeaningfulFrench(postingText)) return null;
+  return {
+    type: 'quebec_language_law',
+    severity: 'warning',
+    evidence: [
+      `location "${locationText}" is in Québec`,
+      'posting text contains no meaningful French',
+    ],
+    explanation:
+      'Québec-based posting published without French. The Charter of the French Language ' +
+      'requires employers to publish job postings in French and to serve clients in French ' +
+      'first, so an English-only Québec posting signals a compliance risk.',
+  };
 }

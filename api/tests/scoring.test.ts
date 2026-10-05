@@ -248,10 +248,30 @@ describe('score persistence, profile, and feedback', () => {
 
   it('round-trips the single-row profile', () => {
     expect(getUserProfile(database)).toBeNull();
-    saveUserProfile(database, { skillsText: 'TypeScript', yearsExperience: 7 });
-    expect(getUserProfile(database)).toEqual({ skillsText: 'TypeScript', yearsExperience: 7 });
-    saveUserProfile(database, { skillsText: null, yearsExperience: null });
-    expect(getUserProfile(database)).toEqual({ skillsText: null, yearsExperience: null });
+    saveUserProfile(database, {
+      skillsText: 'TypeScript',
+      yearsExperience: 7,
+      spokenLanguages: [],
+      languageRuleEnabled: true,
+    });
+    expect(getUserProfile(database)).toEqual({
+      skillsText: 'TypeScript',
+      yearsExperience: 7,
+      spokenLanguages: [],
+      languageRuleEnabled: true,
+    });
+    saveUserProfile(database, {
+      skillsText: null,
+      yearsExperience: null,
+      spokenLanguages: ['en', 'fr'],
+      languageRuleEnabled: false,
+    });
+    expect(getUserProfile(database)).toEqual({
+      skillsText: null,
+      yearsExperience: null,
+      spokenLanguages: ['en', 'fr'],
+      languageRuleEnabled: false,
+    });
   });
 
   it('sets, reads, and clears feedback', () => {
