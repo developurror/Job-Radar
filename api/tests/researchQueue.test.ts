@@ -130,4 +130,24 @@ describe('company research queue', () => {
     expect(researchQueue.researchState()).toEqual({ activeCompany: null, queuedCompanies: [] });
     expect(researchQueue.researchStatusFor('   ')).toBeNull();
   });
+
+  it('redacts credentials from stored failure messages', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const researchQueue = createCompanyResearchQueue(async () => {
+      throw new Error(
+        'fetch failed for https://example.com/careers?access_token=TESTTOKEN123&ref=jobs',
+      );
+    });
+    try {
+      researchQueue.enqueueResearch('Secretive Co');
+      await waitForQueueToAdvance();
+
+      expect(researchQueue.researchStatusFor('Secretive Co')).toBe('failed');
+      const failureMessage = researchQueue.failureMessageFor('Secretive Co');
+      expect(failureMessage).toContain('access_token=***');
+      expect(failureMessage).not.toContain('TESTTOKEN123');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });
