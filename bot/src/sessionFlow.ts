@@ -137,7 +137,7 @@ function buildSearchModal(locale: BotLocale, search: BotSearchInput): ModalBuild
   });
   addTextInput('city', 'cityLabel', { value: search.city });
   addTextInput('province', 'provinceLabel', { value: search.provinceState });
-  addTextInput('country', 'countryLabel', { value: search.country });
+  addTextInput('country', 'countryLabel', { placeholderKey: 'countryPlaceholder', value: search.country });
   addTextInput('domain', 'domainLabel', { value: search.field });
   return modal;
 }
