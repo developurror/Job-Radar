@@ -179,6 +179,62 @@ export const sourceCredentials = sqliteTable(
   ],
 );
 
+/** Discord bot sessions (upgrade spec §3.5, Phase 10). A session is working
+ *  state for one Discord user's search: the request, the criteria/profile
+ *  built from it, and a ranked result snapshot. Bot runs NEVER write the
+ *  dashboard's job_evaluations / job_scores tables. Rows expire after 24 h
+ *  and are swept when new sessions are created. */
+export const botSessions = sqliteTable('bot_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  discordUserId: text('discord_user_id').notNull(),
+  status: text('status').notNull(), // 'evaluating' | 'scoring' | 'researching' | 'done' | 'failed'
+  stateJson: text('state_json').notNull(), // BotSessionRequest (search + filters) as JSON
+  criteriaJson: text('criteria_json').notNull(), // session criteria built from templates, as JSON
+  profileJson: text('profile_json').notNull(), // session scoring profile as JSON
+  error: text('error'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+});
+
+/** Ranked result snapshot for one bot session (upgrade spec §3.5). One row
+ *  per scored (passed) job; rank is 1-based, best combined score first. The
+ *  snapshot JSON holds exactly what the bot renders: posting fields, flags,
+ *  top evidence line, and the intel summary or its pending state. */
+export const botSessionResults = sqliteTable(
+  'bot_session_results',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: integer('session_id')
+      .notNull()
+      .references(() => botSessions.id, { onDelete: 'cascade' }),
+    jobId: integer('job_id')
+      .notNull()
+      .references(() => jobs.id, { onDelete: 'cascade' }),
+    outcome: text('outcome').notNull(), // EvaluationOutcome ('passed' for stored rows)
+    combinedScore: real('combined_score'),
+    chanceScore: real('chance_score'),
+    qualityScore: real('quality_score'),
+    rank: integer('rank').notNull(), // 1-based
+    snapshotJson: text('snapshot_json').notNull(),
+  },
+  (table) => [
+    uniqueIndex('bot_session_results_session_job').on(table.sessionId, table.jobId),
+    index('bot_session_results_session_rank').on(table.sessionId, table.rank),
+  ],
+);
+
+/** Remembered per-Discord-user answers (upgrade spec §3.5): pre-fill the
+ *  next /jobradar run; wiped by /jobradar forget. Local-only, like
+ *  everything else in this database. */
+export const botUserProfiles = sqliteTable('bot_user_profiles', {
+  discordUserId: text('discord_user_id').primaryKey(),
+  searchJson: text('search_json').notNull(), // last BotSearchInput as JSON
+  filtersJson: text('filters_json').notNull(), // last BotFilterInput as JSON
+  locale: text('locale'), // last Discord locale seen for the user ('en' | 'fr')
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export type DbCompanyIntel = typeof companyIntel.$inferSelect;
 
 export type DbJobScore = typeof jobScores.$inferSelect;
@@ -189,6 +245,9 @@ export type DbFlagSetting = typeof flagSettings.$inferSelect;
 
 export type DbJob = typeof jobs.$inferSelect;
 export type NewDbJob = typeof jobs.$inferInsert;
+export type DbBotSession = typeof botSessions.$inferSelect;
+export type DbBotSessionResult = typeof botSessionResults.$inferSelect;
+export type DbBotUserProfile = typeof botUserProfiles.$inferSelect;
 export type DbIngestionRun = typeof ingestionRuns.$inferSelect;
 export type DbCriterion = typeof criteria.$inferSelect;
 export type NewDbCriterion = typeof criteria.$inferInsert;

@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db.js';
 import { ingestionConfig, sourceCredentials } from '../schema.js';
 import { getEnvIngestionDefaults, hasEnvAdzunaCredentials } from './envDefaults.js';
+import { getSourceDefinition } from './sources/registry.js';
 
 export interface ResolvedIngestionConfig {
   keywords: string | null;
@@ -73,19 +74,19 @@ function toConfigView(row: IngestionConfigRow): IngestionConfigView {
     provinceState: row.provinceState,
     city: row.city,
     field: row.field,
-    enabledSources: parseEnabledSources(row.enabledSourcesJson),
+    // A saved config can outlive the source registry (a source removed in
+    // a later version): unknown ids are dropped from the view so no
+    // consumer — the dashboard panel, the ingestion runner — ever trips
+    // over them. The runner also skips unknown ids on its own.
+    enabledSources: parseEnabledSources(row.enabledSourcesJson).filter(
+      (sourceId) => getSourceDefinition(sourceId) !== undefined,
+    ),
     updatedAt: row.updatedAt,
   };
 }
 
 function defaultEnabledSourceIds(): string[] {
-  const enabledSourceIds = [
-    'hackernews',
-    'remoteok',
-    'arbeitnow',
-    'themuse',
-    'weworkremotely',
-  ];
+  const enabledSourceIds = ['hackernews', 'remoteok', 'arbeitnow', 'themuse'];
   if (hasEnvAdzunaCredentials()) enabledSourceIds.push('adzuna');
   return enabledSourceIds;
 }

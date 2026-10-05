@@ -5,7 +5,6 @@ import { fetchArbeitnowJobs } from '../src/ingest/sources/arbeitnow.js';
 import { fetchHackerNewsJobs } from '../src/ingest/sources/hackernews.js';
 import { fetchRemoteOkJobs } from '../src/ingest/sources/remoteok.js';
 import { fetchTheMuseJobs } from '../src/ingest/sources/themuse.js';
-import { fetchWeWorkRemotelyJobs } from '../src/ingest/sources/weworkremotely.js';
 
 function makeResolvedConfig(
   overrides: Partial<ResolvedIngestionConfig> = {},
@@ -300,48 +299,3 @@ describe('fetchTheMuseJobs', () => {
   });
 });
 
-describe('fetchWeWorkRemotelyJobs', () => {
-  it('parses a 2-item RSS fixture with CDATA and splits Company: Title', async () => {
-    const rssFixture = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0"><channel>
-<item>
-<title>Acme Corp: Senior Backend Engineer</title>
-<link>https://weworkremotely.com/remote-jobs/acme-senior-backend</link>
-<guid>https://weworkremotely.com/remote-jobs/acme-senior-backend</guid>
-<pubDate>Wed, 30 Sep 2026 12:00:00 GMT</pubDate>
-<region>Worldwide</region>
-<description><![CDATA[<p>Build backend systems.</p>]]></description>
-</item>
-<item>
-<title>Globex: Product Designer</title>
-<link>https://weworkremotely.com/remote-jobs/globex-designer</link>
-<pubDate>Thu, 01 Oct 2026 09:00:00 GMT</pubDate>
-<description><![CDATA[<p>Design products.</p>]]></description>
-</item>
-</channel></rss>`;
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      text: async () => rssFixture,
-      json: async () => ({}),
-    })) as unknown as typeof fetch;
-    const postings = await fetchWeWorkRemotelyJobs(makeResolvedConfig(), fetchImpl);
-    expect(postings).toHaveLength(2);
-    expect(postings[0]).toMatchObject({
-      source: 'weworkremotely',
-      externalId: 'https://weworkremotely.com/remote-jobs/acme-senior-backend',
-      title: 'Senior Backend Engineer',
-      companyName: 'Acme Corp',
-      url: 'https://weworkremotely.com/remote-jobs/acme-senior-backend',
-      locationRaw: 'Worldwide',
-      descriptionHtml: '<p>Build backend systems.</p>',
-      salaryMin: null,
-    });
-    expect(postings[0].postedAt).toBe(Date.parse('Wed, 30 Sep 2026 12:00:00 GMT'));
-    expect(postings[1]).toMatchObject({
-      externalId: 'https://weworkremotely.com/remote-jobs/globex-designer',
-      title: 'Product Designer',
-      companyName: 'Globex',
-      locationRaw: null,
-    });
-  });
-});

@@ -87,7 +87,7 @@ If you prefer to set things up yourself:
    `llm` container — your own Ollama does that job):
 
    ```bash
-   docker compose up -d --build --no-deps analyzer api client
+   docker compose up -d --build --no-deps analyzer api client bot
    ```
 
 6. Open the dashboard: **http://localhost:5173**
@@ -139,7 +139,6 @@ were duplicates.
 | RemoteOK | No | Public JSON API. *Data courtesy of [RemoteOK](https://remoteok.com) — please link back to RemoteOK when displaying their listings.* |
 | Arbeitnow | No | Free job-board API |
 | The Muse | No | Public jobs API; your Field value is used as its category |
-| We Work Remotely | No | Programming-jobs RSS feed |
 
 Example: keywords `software engineer`, country `ca`, province `Quebec`,
 field `software` searches Adzuna Canada for software-engineer postings
@@ -281,6 +280,62 @@ toward the *job quality* score, with the intel itself cited as evidence.
 > is the company name in a search query — never your profile, your
 > ratings, or anything about you.
 
+### Discord bot (optional)
+
+JobRadar can also answer on Discord. On a server you control, a member
+runs `/jobradar search`, answers two short rounds of questions (what
+they are looking for, then filters like work mode, salary floor,
+experience, and whether staffing companies are acceptable), and gets
+their top matches — scored, with company intel — right in chat, best
+first, with **More results** for the next pages. `/jobradar help`
+explains the flow in chat.
+
+The bot is a chat-sized front-end on the same local API; the dashboard
+stays the full tool. Each Discord user searches with their own answers
+— a bot search never touches your dashboard's evaluations or scores —
+and their answers are remembered on your machine so the next search
+starts pre-filled. `/jobradar forget` wipes a user's remembered
+answers. Without a bot token the `bot` service logs one line and
+idles; everything else works exactly as before.
+
+**Set it up once:**
+
+1. Go to the
+   [Discord Developer Portal](https://discord.com/developers/applications)
+   and create a **New Application** (any name, e.g. "JobRadar").
+2. Open its **Bot** page and click **Reset Token**; copy the token —
+   that is your `DISCORD_BOT_TOKEN`. Leave every **Privileged Gateway
+   Intent** switch OFF: the bot works through slash commands only and
+   never reads chat messages, so it needs none.
+3. Invite the bot to your server: under **OAuth2 → URL Generator**,
+   tick the `bot` and `applications.commands` scopes, then tick the
+   bot permissions **Send Messages**, **Embed Links**, and **Use Slash
+   Commands**. Open the generated URL and pick your server.
+4. Get the server's id: in Discord, turn on **Developer Mode** (User
+   Settings → Advanced), then right-click your server's icon →
+   **Copy Server ID**. That is `DISCORD_GUILD_ID` — registering the
+   command per-server makes it appear instantly instead of after
+   Discord's global propagation delay.
+5. Add both to your `.env` and restart (`./run.sh`, or
+   `docker compose up -d --build --no-deps analyzer api client bot`):
+
+   ```
+   DISCORD_BOT_TOKEN=…
+   DISCORD_GUILD_ID=…
+   ```
+
+   Optionally add `DISCORD_ALLOWED_ROLE_ID` (a role's id, from Server
+   Settings → Roles with Developer Mode on): when set, only members
+   holding that role can use `/jobradar`; when unset, the whole server
+   can.
+
+One person's search runs the same ingestion, scoring, and company
+research as the dashboard — on your machine, one search at a time — so
+a busy server keeps your machine busy; the role gate is the throttle.
+And one honesty note, which the bot's own help text repeats: what
+users type to the bot passes through Discord's servers, like any
+Discord message.
+
 ### Choosing the AI backend
 
 Local Ollama is the default (`LLM_PROVIDER=ollama` in `.env`). Two other
@@ -366,7 +421,7 @@ command in this README already does) and let the Ollama on your machine
 do the AI work instead:
 
 ```bash
-docker compose up -d --build --no-deps analyzer api client
+docker compose up -d --build --no-deps analyzer api client bot
 ```
 
 **Adzuna never fetches anything / shows as skipped.**

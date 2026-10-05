@@ -19,6 +19,21 @@ services:
     depends_on:
       - analyzer
 
+  # Discord bot front-end (Phase 10). Talks only to the api service. With no
+  # DISCORD_BOT_TOKEN set it logs one line and idles — the rest of the stack
+  # is unaffected, so dashboard-only users can ignore it entirely.
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    environment:
+      API_BASE_URL: http://api:3001
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      DISCORD_ALLOWED_ROLE_ID: ${DISCORD_ALLOWED_ROLE_ID:-}
+    depends_on:
+      - api
+
   analyzer:
     build: ./analyzer
     ports:

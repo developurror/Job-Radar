@@ -235,7 +235,7 @@ step 'Building and starting JobRadar'
 mkdir -p data
 say '  The first build downloads several GB of dependencies and can take'
 say '  10 minutes or more. Later runs are fast.'
-docker compose up -d --build --no-deps analyzer api client \
+docker compose up -d --build --no-deps analyzer api client bot \
   || fail 'Docker Compose failed to build or start the services. Scroll up for the Docker error; common causes are low disk space or a blocked download. Running this script again is safe.'
 ok 'Services started.'
 
@@ -283,7 +283,7 @@ say '  Good to know:'
 say '    - Your database lives in ./data and your settings in ./.env —'
 say '      back those up and you have backed up JobRadar.'
 say '    - Stop JobRadar:   docker compose stop'
-say '    - Start it again:  docker compose up -d --no-deps analyzer api client'
+say '    - Start it again:  docker compose up -d --no-deps analyzer api client bot'
 say '      (or just run this script again — it also handles updates).'
 say ''
 

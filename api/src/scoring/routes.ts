@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { analyzerHealthy, learnScoreBatch, type LearnExample } from '../analyzerClient.js';
 import type { Database } from '../db.js';
 import { jobFeedback, jobScores, jobs } from '../schema.js';
+import type { DbJob } from '../schema.js';
 import { buildValidatorDeps } from '../criteria/routes.js';
 import type { ValidatorDeps } from '../criteria/validators.js';
 import { defaultFlagTypes, detectFlags, needsAnalyzerForFlags } from '../flags/detectors.js';
@@ -61,17 +62,25 @@ function cachedCompanyIntel(database: Database, job: { companyName: string | nul
   return stored?.intel ?? null;
 }
 
-/** Score one job (scores + flags), persist both, return them. */
-export async function scoreJob(
+/** The profile fields scoring consumes. The dashboard passes the persisted
+ *  profile; a bot session passes its own answers (upgrade spec §3.4) — one
+ *  scoring implementation, two callers. */
+export interface ScoringProfileInput {
+  skillsText: string | null;
+  yearsExperience: number | null;
+}
+
+/** Compute one job's scores + flags against an explicit profile WITHOUT
+ *  persisting anything. scoreJob (dashboard) persists the result; the bot
+ *  session pipeline stores it in its own snapshot tables instead, so a bot
+ *  run never touches the dashboard's job_scores / job_flags rows. */
+export async function computeJobScores(
   database: Database,
-  jobId: number,
+  job: DbJob,
+  profile: ScoringProfileInput | null,
   context: ScoreJobContext,
 ): Promise<ScoredJobResult> {
-  const job = database.select().from(jobs).where(eq(jobs.id, jobId)).get();
-  if (!job) throw new Error(`job ${jobId} not found`);
-
-  const profile = getUserProfile(database);
-  const repostCount = countRecentReposts(database, jobId);
+  const repostCount = countRecentReposts(database, job.id);
 
   const chance = await scoreInterviewChance({
     job,
@@ -79,7 +88,7 @@ export async function scoreJob(
     yearsExperience: profile?.yearsExperience ?? null,
     repostCount,
     profileVector: context.profileVector,
-    learnedMatch: context.learnedMatchByJobId?.get(jobId) ?? null,
+    learnedMatch: context.learnedMatchByJobId?.get(job.id) ?? null,
     deps: context.deps,
   });
   const quality = scoreJobQuality(job, cachedCompanyIntel(database, job));
@@ -90,16 +99,30 @@ export async function scoreJob(
     chanceFactors: chance.factors,
     qualityFactors: quality.factors,
   };
-  saveJobScore(database, jobId, breakdown);
 
   const flags = await detectFlags(
     job,
     { repostCount90d: repostCount, enabledTypes: context.enabledFlagTypes },
     context.deps,
   );
-  saveJobFlags(database, jobId, flags);
 
   return { scores: breakdown, flags };
+}
+
+/** Score one job (scores + flags), persist both, return them. */
+export async function scoreJob(
+  database: Database,
+  jobId: number,
+  context: ScoreJobContext,
+): Promise<ScoredJobResult> {
+  const job = database.select().from(jobs).where(eq(jobs.id, jobId)).get();
+  if (!job) throw new Error(`job ${jobId} not found`);
+
+  const result = await computeJobScores(database, job, getUserProfile(database), context);
+  saveJobScore(database, jobId, result.scores);
+  saveJobFlags(database, jobId, result.flags);
+
+  return result;
 }
 
 /** Learned-match scores for the target jobs, from ONE analyzer call trained on
@@ -144,19 +167,30 @@ async function buildLearnedMatchByJobId(
   return learnedMatchByJobId;
 }
 
+export interface BuildScoreJobContextOptions {
+  /** Profile to score against. Defaults to the persisted dashboard profile;
+   *  bot sessions pass their own session profile instead. */
+  profile?: ScoringProfileInput | null;
+  /** The learned-match factor is trained on the dashboard owner's feedback
+   *  labels. Bot sessions pass false — those labels are not the bot user's
+   *  taste; the factor is simply absent and the weights renormalize. */
+  includeLearnedMatch?: boolean;
+}
+
 /** Shared scoring context for a request: profile embedding + flag config.
  *  Target jobs are the postings about to be scored; the learned-match model
  *  scores all of them in a single analyzer call. */
 export async function buildScoreJobContext(
   database: Database,
   targetJobs: { id: number; text: string }[] = [],
+  options: BuildScoreJobContextOptions = {},
 ): Promise<ScoreJobContext> {
   const settings = listFlagSettings(database);
   const enabledFlagTypes = defaultFlagTypes();
   for (const setting of settings) {
     if (!setting.enabled) enabledFlagTypes.delete(setting.type);
   }
-  const profile = getUserProfile(database);
+  const profile = options.profile !== undefined ? options.profile : getUserProfile(database);
   const needsAnalyzer =
     (profile?.skillsText?.trim() ? true : false) || needsAnalyzerForFlags(enabledFlagTypes);
   if (needsAnalyzer && !(await analyzerHealthy())) {
@@ -165,7 +199,10 @@ export async function buildScoreJobContext(
   const deps = buildValidatorDeps(database);
   const profileVector =
     profile?.skillsText?.trim() ? await deps.embedStatement(profile.skillsText) : null;
-  const learnedMatchByJobId = await buildLearnedMatchByJobId(database, targetJobs);
+  const learnedMatchByJobId =
+    options.includeLearnedMatch === false
+      ? null
+      : await buildLearnedMatchByJobId(database, targetJobs);
   return { database, profileVector, deps, enabledFlagTypes, learnedMatchByJobId };
 }
 

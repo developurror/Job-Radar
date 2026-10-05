@@ -1,6 +1,8 @@
 import express from 'express';
 import { and, desc, eq, notInArray } from 'drizzle-orm';
 import { analyzerHealthy } from './analyzerClient.js';
+import { createBotSessionRunner } from './bot/pipeline.js';
+import { registerBotRoutes } from './bot/routes.js';
 import { registerCompanyRoutes } from './companies/routes.js';
 import { createResearchQueueForDatabase } from './companies/refresh.js';
 import { registerCriteriaRoutes } from './criteria/routes.js';
@@ -40,6 +42,9 @@ registerScoringRoutes(app, db, researchQueue);
 registerFlagRoutes(app, db);
 registerCompanyRoutes(app, db, { researchQueue });
 registerIngestionRoutes(app, db);
+// Phase 10: Discord bot sessions run serialized, sharing the research queue.
+const botSessionRunner = createBotSessionRunner(db, { researchQueue });
+registerBotRoutes(app, db, { sessionRunner: botSessionRunner });
 
 app.get('/health', async (_request, response) => {
   response.json({ status: 'ok', analyzer: await analyzerHealthy() });
