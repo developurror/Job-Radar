@@ -25,6 +25,19 @@ const sampleIntel: CompanyIntel = {
   notableProjects: ['Super Anvil 3000'],
   reputationNotes: 'Well regarded by customers; some complaints about support speed.',
   sentiment: 'positive',
+  evidenceStatus: 'sufficient',
+  positiveItems: [
+    {
+      claim: 'Delivery crews get route choice after probation',
+      specificityBand: 'medium',
+      corroboration: 4,
+      sourceTitle: 'Acme reviews',
+      sourceUrl: 'https://example.com/acme-reviews',
+      kind: 'signal',
+    },
+  ],
+  negativeItems: [],
+  genericPraiseCluster: false,
 };
 
 function makeJob(overrides: Partial<DbJob> = {}): DbJob {
@@ -103,6 +116,45 @@ describe('company intel store', () => {
     const updated = saveCompanyIntel(database, 'Acme Corp', { ...sampleIntel, sentiment: 'mixed' });
     expect(updated.intel.sentiment).toBe('mixed');
     expect(getCompanyIntel(database, 'acme corp')?.intel.sentiment).toBe('mixed');
+  });
+
+  it('round-trips the split sections and the resolved Glassdoor company id', () => {
+    saveCompanyIntel(database, 'Acme Corp', sampleIntel, { glassdoorCompanyId: '12345' });
+    const stored = getCompanyIntel(database, 'Acme Corp');
+    expect(stored?.glassdoorCompanyId).toBe('12345');
+    expect(stored?.intel.positiveItems).toEqual(sampleIntel.positiveItems);
+    expect(stored?.intel.evidenceStatus).toBe('sufficient');
+  });
+
+  it('keeps a resolved Glassdoor company id across a search-only re-save', () => {
+    saveCompanyIntel(database, 'Acme Corp', sampleIntel, { glassdoorCompanyId: '12345' });
+    saveCompanyIntel(database, 'Acme Corp', sampleIntel);
+    expect(getCompanyIntel(database, 'Acme Corp')?.glassdoorCompanyId).toBe('12345');
+  });
+
+  it('reads pre-Phase-11 cached intel with section defaults applied', () => {
+    const legacyIntelJson = JSON.stringify({
+      summary: 'Legacy intel from before the split.',
+      knownFor: ['anvils'],
+      notableProjects: [],
+      reputationNotes: 'Fine.',
+      sentiment: 'mixed',
+    });
+    database
+      .insert(companyIntel)
+      .values({
+        companyName: 'legacy co',
+        displayName: 'Legacy Co',
+        intelJson: legacyIntelJson,
+        fetchedAt: Date.now(),
+      })
+      .run();
+    const stored = getCompanyIntel(database, 'Legacy Co');
+    expect(stored?.intel.evidenceStatus).toBe('sufficient');
+    expect(stored?.intel.positiveItems).toEqual([]);
+    expect(stored?.intel.negativeItems).toEqual([]);
+    expect(stored?.intel.genericPraiseCluster).toBe(false);
+    expect(stored?.glassdoorCompanyId).toBeNull();
   });
 });
 
@@ -186,6 +238,25 @@ describe('company routes', () => {
       expect(body.status).toBe('stale');
       expect(body.error).toBeNull();
       expect(researchCalls).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it('POST research passes the useSearchApi opt-in from the request body to the queue', async () => {
+    const recordedRuns: Array<{ displayName: string; useSearchApi: boolean }> = [];
+    const recordingQueue = createCompanyResearchQueue(async (displayName, useSearchApi) => {
+      recordedRuns.push({ displayName, useSearchApi });
+    });
+    const { baseUrl, close } = await startApp({ researchQueue: recordingQueue });
+    try {
+      const response = await fetch(`${baseUrl}/v1/companies/Acme%20Corp/research`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ useSearchApi: true }),
+      });
+      expect(response.status).toBe(202);
+      expect(recordedRuns).toEqual([{ displayName: 'Acme Corp', useSearchApi: true }]);
     } finally {
       await close();
     }

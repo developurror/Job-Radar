@@ -1,12 +1,65 @@
 /** Spec F8: structured company intel produced by the Hermes agent. */
 export type IntelSentiment = 'positive' | 'mixed' | 'negative' | 'unknown';
 
+/** Phase 11 (F13, spec §4.6): whether the intel rests on evidence that was
+ *  verified as belonging to this company. 'insufficient' is a first-class
+ *  output state — the research found nothing it could confirm is this
+ *  company's, so no sections are shown rather than another company's. */
+export type IntelEvidenceStatus = 'sufficient' | 'insufficient';
+
+/** Specificity band from the Phase 11 spike rubric (0-5 score, banded:
+ *  4-5 high, 2-3 medium, 0-1 generic). Bands, not a strict rank. */
+export type IntelSpecificityBand = 'high' | 'medium' | 'generic';
+
+/** One evidence item in a split intel section. kind 'signal': derived from
+ *  search-surfaced evidence (snippets, aggregates, news). kind 'review': a
+ *  literal employee review (the OpenWeb Ninja Glassdoor path). */
+export interface IntelItem {
+  claim: string;
+  specificityBand: IntelSpecificityBand;
+  corroboration: number;
+  sourceTitle: string;
+  sourceUrl: string;
+  kind: 'signal' | 'review';
+}
+
+/** A pre-verified employee review handed to the analyzer as citable
+ *  evidence (Phase 11 API opt-in). Identity was resolved by the Glassdoor
+ *  company ID on the API side before this is sent. kind 'review' is a
+ *  literal review; kind 'signal' is an aggregate (e.g. the overview). */
+export interface IntelReviewEvidence {
+  text: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  kind: 'signal' | 'review';
+}
+
 export interface CompanyIntel {
   summary: string;
   knownFor: string[];
   notableProjects: string[];
   reputationNotes: string;
   sentiment: IntelSentiment;
+  /** Phase 11 split structure (spec §4.5). The blended fields above stay
+   *  the derived secondary view the reputation factor consumes. */
+  evidenceStatus: IntelEvidenceStatus;
+  positiveItems: IntelItem[];
+  negativeItems: IntelItem[];
+  /** True when the top positive items are generic-band praise repeated
+   *  at cluster scale — the coached-reviews pattern (spec §4.2). */
+  genericPraiseCluster: boolean;
+}
+
+/** Section defaults for intel cached before Phase 11 (no split fields):
+ *  legacy rows read as sufficient, section-less intel. */
+export function withIntelSectionDefaults(intel: CompanyIntel): CompanyIntel {
+  return {
+    ...intel,
+    evidenceStatus: intel.evidenceStatus ?? 'sufficient',
+    positiveItems: intel.positiveItems ?? [],
+    negativeItems: intel.negativeItems ?? [],
+    genericPraiseCluster: intel.genericPraiseCluster ?? false,
+  };
 }
 
 export interface StoredCompanyIntel {
@@ -17,6 +70,9 @@ export interface StoredCompanyIntel {
   intel: CompanyIntel;
   fetchedAt: number;
   fresh: boolean;
+  /** Glassdoor company ID when a research run resolved the company
+   *  through the OpenWeb Ninja API (Phase 11); null for search-only runs. */
+  glassdoorCompanyId: string | null;
 }
 
 export type CompanyIntelStatus = 'fresh' | 'stale' | 'none' | 'queued' | 'researching' | 'failed';

@@ -142,12 +142,17 @@ export const flagSettings = sqliteTable('flag_settings', {
 });
 
 /** Cached company intel from the Hermes agent (spec F8). Keyed by the
- *  normalized (trimmed, lowercased) company name; 30-day freshness. */
+ *  normalized (trimmed, lowercased) company name; 30-day freshness.
+ *  Phase 11 (F13): evidence_status records whether the intel rests on
+ *  verified evidence, and glassdoor_company_id the resolved Glassdoor
+ *  identity when a run used the OpenWeb Ninja API opt-in. */
 export const companyIntel = sqliteTable('company_intel', {
   companyName: text('company_name').primaryKey(), // normalized key
   displayName: text('display_name').notNull(), // original casing, for the UI
   intelJson: text('intel_json').notNull(), // CompanyIntel as JSON
   fetchedAt: integer('fetched_at').notNull(), // unix ms
+  evidenceStatus: text('evidence_status').notNull().default('sufficient'), // 'sufficient' | 'insufficient'
+  glassdoorCompanyId: text('glassdoor_company_id'), // resolved API identity, when a run used it
 });
 
 /** Saved ingestion preferences (Phase 6, spec F1). One row, id = 1. Seeded

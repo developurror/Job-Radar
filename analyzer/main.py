@@ -39,8 +39,21 @@ class GenerateResponse(BaseModel):
     provider: str
 
 
+class ReviewEvidenceInput(BaseModel):
+    """One pre-verified employee review supplied by the API service
+    (Phase 11: the OpenWeb Ninja Glassdoor path). The API resolved the
+    company identity by the platform's company ID before sending these;
+    Hermes treats them as verified evidence, citable like a fetched page."""
+
+    text: str = Field(min_length=1, max_length=8000)
+    sourceTitle: str = Field(default="", max_length=300)
+    sourceUrl: str = Field(default="", max_length=1000)
+    kind: str = Field(default="review", max_length=20)
+
+
 class CompanyIntelRequest(BaseModel):
     companyName: str = Field(min_length=1, max_length=200)
+    reviewEvidence: list[ReviewEvidenceInput] = Field(default_factory=list, max_length=20)
 
 
 class CompanyIntelResponse(BaseModel):
@@ -121,7 +134,13 @@ def create_app(settings: AnalyzerSettings | None = None) -> FastAPI:
         """Hermes deep company analysis (spec F8). Only the company name is
         used — no profile or job-seeker data is involved."""
         try:
-            intel = hermes.analyze_company(request.companyName, deep_provider)
+            intel = hermes.analyze_company(
+                request.companyName,
+                deep_provider,
+                review_evidence=[
+                    review.model_dump() for review in request.reviewEvidence
+                ],
+            )
         except hermes.HermesError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
         return CompanyIntelResponse(intel=intel)

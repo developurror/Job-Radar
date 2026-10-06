@@ -127,6 +127,13 @@
           >
             {{ sentimentLabel(intel.sentiment) }}
           </v-chip>
+          <v-checkbox
+            v-model="useSearchApi"
+            :label="t('jobDetail.useSearchApi')"
+            density="compact"
+            hide-details
+            class="mr-2 flex-grow-0"
+          />
           <v-btn
             size="small"
             variant="outlined"
@@ -140,7 +147,16 @@
           <v-progress-circular indeterminate size="24" />
         </div>
         <div v-else-if="intel && (intelStatus === 'fresh' || intelStatus === 'stale')">
-          <p class="text-body-2 mb-2">{{ intel.summary }}</p>
+          <v-alert
+            v-if="flagIntelDisagreement"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="mb-2"
+          >
+            {{ t('jobDetail.flagIntelDisagreement') }}
+          </v-alert>
+          <p v-if="intel.summary" class="text-body-2 mb-2">{{ intel.summary }}</p>
           <div v-if="intel.knownFor.length > 0" class="mb-2">
             <span class="text-caption text-medium-emphasis mr-1">{{ t('jobDetail.knownFor') }}</span>
             <v-chip
@@ -156,8 +172,101 @@
           <ul v-if="intel.notableProjects.length > 0" class="text-body-2 pl-4 mb-2">
             <li v-for="project in intel.notableProjects" :key="project">{{ project }}</li>
           </ul>
-          <p v-if="intel.reputationNotes" class="text-caption text-medium-emphasis mb-1">
-            {{ intel.reputationNotes }}
+          <v-alert
+            v-if="intel.evidenceStatus === 'insufficient'"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-2"
+          >
+            {{ t('jobDetail.insufficientEvidence') }}
+          </v-alert>
+          <template v-else>
+            <v-alert
+              v-if="intel.genericPraiseCluster"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-2"
+            >
+              {{ t('jobDetail.genericPraiseCluster') }}
+            </v-alert>
+            <div v-if="intel.positiveItems.length > 0" class="mb-3">
+              <h5 class="text-subtitle-2 mb-1">{{ t('jobDetail.positiveItemsHeading') }}</h5>
+              <div
+                v-for="(item, itemIndex) in intel.positiveItems"
+                :key="itemIndex"
+                class="mb-2"
+              >
+                <p class="text-body-2 mb-0">{{ item.claim }}</p>
+                <div class="d-flex align-center flex-wrap ga-1">
+                  <v-chip
+                    size="x-small"
+                    variant="tonal"
+                    :color="specificityBandColor(item.specificityBand)"
+                  >
+                    {{ t(`jobDetail.specificityBands.${item.specificityBand}`) }}
+                  </v-chip>
+                  <span class="text-caption text-medium-emphasis">
+                    {{ t('jobDetail.corroboration', { count: item.corroboration }) }}
+                  </span>
+                  <a
+                    v-if="item.sourceUrl"
+                    :href="item.sourceUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-caption"
+                  >{{ item.sourceTitle }}</a>
+                  <span v-else class="text-caption text-medium-emphasis">{{ item.sourceTitle }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="intel.negativeItems.length > 0" class="mb-3">
+              <h5 class="text-subtitle-2 mb-1">{{ t('jobDetail.negativeItemsHeading') }}</h5>
+              <div
+                v-for="(item, itemIndex) in intel.negativeItems"
+                :key="itemIndex"
+                class="mb-2"
+              >
+                <p class="text-body-2 mb-0">{{ item.claim }}</p>
+                <div class="d-flex align-center flex-wrap ga-1">
+                  <v-chip
+                    size="x-small"
+                    variant="tonal"
+                    :color="specificityBandColor(item.specificityBand)"
+                  >
+                    {{ t(`jobDetail.specificityBands.${item.specificityBand}`) }}
+                  </v-chip>
+                  <span class="text-caption text-medium-emphasis">
+                    {{ t('jobDetail.corroboration', { count: item.corroboration }) }}
+                  </span>
+                  <a
+                    v-if="item.sourceUrl"
+                    :href="item.sourceUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-caption"
+                  >{{ item.sourceTitle }}</a>
+                  <span v-else class="text-caption text-medium-emphasis">{{ item.sourceTitle }}</span>
+                </div>
+              </div>
+            </div>
+            <p v-if="intel.reputationNotes" class="text-caption text-medium-emphasis mb-1">
+              {{ intel.reputationNotes }}
+            </p>
+          </template>
+          <div v-if="intelStatus === 'stale'" class="d-flex align-center flex-wrap ga-2 mb-1">
+            <span class="text-caption font-weight-bold">{{ intelAgeLabel }}</span>
+            <v-btn
+              size="x-small"
+              variant="text"
+              @click="startResearch"
+            >
+              {{ t('jobDetail.runIntelAgain') }}
+            </v-btn>
+          </div>
+          <p v-else-if="intelAgeLabel" class="text-caption text-medium-emphasis mb-1">
+            {{ intelAgeLabel }}
           </p>
           <p class="text-caption text-disabled">
             {{ t('jobDetail.researchedMeta', { date: intelFetchedAt ? d(intelFetchedAt, 'dateOnly') : t('jobDetail.unknownDate') }) }}
@@ -183,7 +292,7 @@ import { useI18n } from 'vue-i18n';
 import { api } from '../api';
 import { useJobsStore } from '../stores/jobs';
 import { SPOKEN_LANGUAGE_RULE_CRITERION_ID } from '../types';
-import type { CompanyIntel, CompanyIntelStatus, CriterionKind, CriterionResult, CriterionVerdict, EvaluationOutcome, IntelSentiment, IntelStatusResponse, JobEvaluation, JobFeedback, JobFlag, JobScores, ScoreFactor } from '../types';
+import type { CompanyIntel, CompanyIntelStatus, CriterionKind, CriterionResult, CriterionVerdict, EvaluationOutcome, IntelSentiment, IntelSpecificityBand, IntelStatusResponse, JobEvaluation, JobFeedback, JobFlag, JobScores, ScoreFactor } from '../types';
 
 const props = defineProps<{ jobId: number }>();
 const emit = defineEmits<{ scored: [] }>();
@@ -207,6 +316,44 @@ const intelLoading = ref(false);
 const intelStatus = ref<CompanyIntelStatus | null>(null);
 const intelError = ref<string | null>(null);
 const intelFailureMessage = ref<string | null>(null);
+/** Phase 11: per-run opt-in to the Glassdoor API precision boost. Off by
+ *  default; only the next research run started from this card uses it. */
+const useSearchApi = ref(false);
+
+/** Spec §4.3.3: surface it when the posting's own flags and the company
+ *  intel disagree — a toxic-culture flag on the posting while the intel
+ *  reads positive is the motivating case (the two never averaged away). */
+const flagIntelDisagreement = computed<boolean>(
+  () =>
+    intel.value !== null &&
+    intel.value.sentiment === 'positive' &&
+    flags.value.some((flag) => flag.type === 'toxic_culture'),
+);
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** "This intel is X days/weeks/months/years old" (spec §4.5) — freshness
+ *  is shown, and refreshing is the user's call, never silent. */
+const intelAgeLabel = computed<string | null>(() => {
+  if (intelFetchedAt.value === null) return null;
+  const ageDays = Math.floor((Date.now() - intelFetchedAt.value) / MILLISECONDS_PER_DAY);
+  if (ageDays < 1) return t('jobDetail.intelAgeToday');
+  if (ageDays < 7) return t('jobDetail.intelAgeDays', { count: ageDays });
+  if (ageDays < 30) return t('jobDetail.intelAgeWeeks', { count: Math.floor(ageDays / 7) });
+  if (ageDays < 365) return t('jobDetail.intelAgeMonths', { count: Math.floor(ageDays / 30) });
+  return t('jobDetail.intelAgeYears', { count: Math.floor(ageDays / 365) });
+});
+
+function specificityBandColor(band: IntelSpecificityBand): string {
+  switch (band) {
+    case 'high':
+      return 'primary';
+    case 'medium':
+      return 'grey-darken-1';
+    case 'generic':
+      return 'grey';
+  }
+}
 
 const INTEL_POLL_INTERVAL_MS = 2500;
 
@@ -322,7 +469,7 @@ async function startResearch() {
   intelError.value = null;
   intelFailureMessage.value = null;
   try {
-    const response = await api.startCompanyResearch(name);
+    const response = await api.startCompanyResearch(name, useSearchApi.value);
     jobsStore.noteResearchStarted(name, response.status);
     intelStatus.value = response.status;
     startIntelPolling();
