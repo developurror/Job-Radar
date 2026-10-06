@@ -79,10 +79,12 @@ SYNTHESIS_RETRY_CORRECTION = (
 MAX_REPORTED_RESPONSE_CHARS = 1500
 
 # Name tokens that carry no identity (legal forms), ignored when deriving
-# a company's distinctive token / acronym for identity verification.
+# a company's distinctive token / acronym for identity verification and
+# its candidate own-domain labels.
 LEGAL_NAME_SUFFIX_TOKENS = {
     "inc", "ltd", "llc", "llp", "corp", "corporation", "company", "co",
     "group", "holdings", "plc", "sa", "ag", "gmbh", "bv", "nv", "srl",
+    "sarl", "pty", "ltée", "ltee",
 }
 
 
@@ -544,12 +546,12 @@ def _normalize_intel(
     if not summary:
         raise HermesError("synthesizer returned an empty summary")
     sentiment = str(intel.get("sentiment", "unknown")).strip().lower()
-    company_domain_label = _company_domain_label(company_name)
+    company_domain_labels = _company_domain_labels(company_name)
     positive_items = _normalize_items(
-        intel.get("positiveItems"), evidence_entries, company_domain_label
+        intel.get("positiveItems"), evidence_entries, company_domain_labels
     )
     negative_items = _normalize_items(
-        intel.get("negativeItems"), evidence_entries, company_domain_label
+        intel.get("negativeItems"), evidence_entries, company_domain_labels
     )
     return {
         "summary": summary,
@@ -565,14 +567,16 @@ def _normalize_intel(
 
 
 def _normalize_items(
-    raw_items, evidence_entries: list[EvidenceEntry], company_domain_label: str
+    raw_items, evidence_entries: list[EvidenceEntry], company_domain_labels: set[str]
 ) -> list[dict]:
     """Normalize one section's items: enforce citations, band specificity,
     sort by (specificity, corroboration), cap at MAX_ITEMS_PER_SECTION.
 
     An item citing an entry on the company's own domain is also dropped:
     the company's pages are marketing, not reviews (the live AccuLynx
-    case had "positive reviews" sourced from acculynx.com itself).
+    case had "positive reviews" sourced from acculynx.com itself, and a
+    VDart item citing vdart.com slipped past an earlier version of this
+    guard that only recognized single-token company names).
     """
     if not isinstance(raw_items, list):
         return []
@@ -590,7 +594,7 @@ def _normalize_items(
             continue
         evidence_entry = evidence_entries[evidence_index - 1]
         evidence_domain_label = _registrable_domain_label(evidence_entry.url)
-        if company_domain_label and evidence_domain_label == company_domain_label:
+        if evidence_domain_label and evidence_domain_label in company_domain_labels:
             continue
         specificity = _coerce_specificity(raw_item.get("specificity"))
         corroboration = _coerce_corroboration(raw_item.get("corroboration"))
@@ -612,20 +616,32 @@ def _normalize_items(
     return [item for _specificity, _corroboration, item in scored_items[:MAX_ITEMS_PER_SECTION]]
 
 
-def _company_domain_label(company_name: str) -> str:
-    """The company name as one domain-style label: lowercased, with the
-    alphanumeric runs of its tokens concatenated ("AccuLynx" ->
-    "acculynx", "OAG" -> "oag", "Oag Aviation Worldwide" ->
-    "oagaviationworldwide")."""
-    return "".join(re.findall(r"[a-z0-9à-ÿ]+", company_name.lower()))
+def _company_domain_labels(company_name: str) -> set[str]:
+    """The candidate domain labels a company may register its own site
+    under: the full name concatenated ("AccuLynx" -> "acculynx", "OAG" ->
+    "oag", "Morgan Properties" -> "morganproperties"); that concatenation
+    with legal-form tokens removed ("VDart Inc" -> "vdart"); and, when
+    more than one content token remains, the first content token alone
+    ("Mirakl Labs" -> "mirakl") — companies overwhelmingly register their
+    first distinctive token. An evidence entry counts as the company's own
+    page only when its registrable label exactly equals one candidate."""
+    name_tokens = re.findall(r"[a-z0-9à-ÿ]+", company_name.lower())
+    content_tokens = [
+        token for token in name_tokens if token not in LEGAL_NAME_SUFFIX_TOKENS
+    ]
+    candidate_labels = {"".join(name_tokens), "".join(content_tokens)}
+    if len(content_tokens) > 1:
+        candidate_labels.add(content_tokens[0])
+    candidate_labels.discard("")
+    return candidate_labels
 
 
 def _registrable_domain_label(url: str) -> str:
     """The registrable label of a URL's host: "acculynx" for
     https://www.acculynx.com/about and https://blog.acculynx.com,
     "glassdoor" for https://www.glassdoor.ca. "" when the URL has no
-    usable host. The comparison against the company label is exact —
-    a label that merely CONTAINS the company name (oagreviews.com)
+    usable host. The comparison against the candidate company labels is
+    exact — a label that merely CONTAINS the company name (oagreviews.com)
     is a different label and never matches."""
     host = urllib.parse.urlparse(url).netloc.lower().rsplit("@", 1)[-1].split(":")[0]
     host_labels = [label for label in host.split(".") if label]

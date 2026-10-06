@@ -582,3 +582,93 @@ def test_synthesize_intel_keeps_items_from_a_domain_label_that_only_contains_the
     assert [item["claim"] for item in intel["positiveItems"]] == [
         "Praised for responsive support"
     ]
+
+
+def test_synthesize_intel_drops_items_citing_own_domain_for_name_with_legal_suffix():
+    # The live VDart case: "VDart Inc" registers vdart.com, but the full
+    # name concatenation is "vdartinc" — the guard must still recognize
+    # the company's own pages once the legal-form token is set aside.
+    evidence_entries = [
+        _page_entry(
+            "VDart Origin Story & Company History",
+            "https://www.vdart.com/about/origin-story",
+            "How VDart grew from a staffing startup into a digital consultancy.",
+        ),
+        _page_entry(
+            "VDart reviews",
+            "https://www.glassdoor.com/Reviews/VDart-Reviews-E456.htm",
+            "Employee reviews of VDart.",
+        ),
+    ]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Leadership credits learning partnerships for growth", "specificity": 4, "corroboration": 1, "evidenceIndex": 1},
+            {"claim": "Protected focus time each week", "specificity": 4, "corroboration": 2, "evidenceIndex": 2},
+        ],
+        negative_items=[
+            {"claim": "Onboarding is entirely self-serve", "specificity": 3, "corroboration": 1, "evidenceIndex": 1},
+        ],
+    )
+    intel = synthesize_intel("VDart Inc", evidence_entries, ScriptedProvider([intel_json]))
+
+    assert [item["claim"] for item in intel["positiveItems"]] == [
+        "Protected focus time each week"
+    ]
+    assert intel["negativeItems"] == []
+
+
+def test_synthesize_intel_keeps_review_platform_and_aggregator_items_for_multi_token_name():
+    evidence_entries = [
+        _page_entry(
+            "VDart reviews",
+            "https://www.glassdoor.ca/Reviews/VDart-Reviews-E456.htm",
+            "Employee reviews of VDart.",
+        ),
+        _page_entry(
+            "VDart reviewed",
+            "https://www.vdartreviews.com/vdart",
+            "A third-party roundup reviewing VDart.",
+        ),
+    ]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Praised for responsive support", "specificity": 3, "corroboration": 2, "evidenceIndex": 1},
+            {"claim": "Roundup notes strong delivery record", "specificity": 3, "corroboration": 1, "evidenceIndex": 2},
+        ],
+        negative_items=[],
+    )
+    intel = synthesize_intel("VDart Inc", evidence_entries, ScriptedProvider([intel_json]))
+
+    # glassdoor.ca is a review platform, and vdartreviews.com merely
+    # CONTAINS the company token — neither is the company's own domain.
+    assert [item["claim"] for item in intel["positiveItems"]] == [
+        "Praised for responsive support",
+        "Roundup notes strong delivery record",
+    ]
+
+
+def test_synthesize_intel_drops_items_citing_full_multiword_name_domain():
+    evidence_entries = [
+        _page_entry(
+            "Morgan Properties — About Us",
+            "https://www.morganproperties.com/about",
+            "A family-owned property management company.",
+        ),
+        _page_entry(
+            "Morgan Properties reviews",
+            "https://www.indeed.com/cmp/Morgan-Properties/reviews",
+            "Employee reviews of Morgan Properties.",
+        ),
+    ]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Emphasizes strong customer service and amenities", "specificity": 2, "corroboration": 1, "evidenceIndex": 1},
+            {"claim": "Stable schedules for site staff", "specificity": 3, "corroboration": 2, "evidenceIndex": 2},
+        ],
+        negative_items=[],
+    )
+    intel = synthesize_intel("Morgan Properties", evidence_entries, ScriptedProvider([intel_json]))
+
+    assert [item["claim"] for item in intel["positiveItems"]] == [
+        "Stable schedules for site staff"
+    ]
