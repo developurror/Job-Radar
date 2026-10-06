@@ -216,11 +216,14 @@ const fieldOptions = computed(() =>
   })),
 );
 
+/** A field/domain combobox item; the combobox model can hold this object instead of its value string. */
+type FieldDomainOption = { title: string; value: string };
+
 const keywordsText = ref('');
 const countryText = ref('');
 const provinceStateText = ref('');
 const cityText = ref('');
-const fieldDomainText = ref<string | null>(null);
+const fieldDomainText = ref<string | FieldDomainOption | null>(null);
 const enabledSourceIds = ref<string[]>([]);
 const credentialInputs = ref<{ [sourceId: string]: { [fieldKey: string]: string } }>({});
 
@@ -243,13 +246,19 @@ function textOrNull(text: string | null): string | null {
   return trimmedText === '' ? null : trimmedText;
 }
 
+/** The combobox model may hold the selected item object; unwrap it to its value string before normalizing. */
+function fieldDomainSelectionOrNull(selection: string | FieldDomainOption | null): string | null {
+  if (selection === null) return null;
+  return textOrNull(typeof selection === 'string' ? selection : selection.value);
+}
+
 function buildFormValues(): IngestionRunOverrides {
   return {
     keywords: textOrNull(keywordsText.value),
     country: textOrNull(countryText.value),
     provinceState: textOrNull(provinceStateText.value),
     city: textOrNull(cityText.value),
-    field: textOrNull(fieldDomainText.value),
+    field: fieldDomainSelectionOrNull(fieldDomainText.value),
     enabledSources: [...enabledSourceIds.value],
   };
 }
