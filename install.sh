@@ -157,29 +157,6 @@ if [ -f .env ]; then
   if [ -z "$MODEL_NAME" ]; then
     MODEL_NAME='hermes3:8b'
   fi
-  # Optional keys introduced by later versions (Phase 11's OpenWeb Ninja
-  # key) are only ever asked about in the fresh-install wizard below, so
-  # existing installs never see them — the key does not even appear in
-  # the file to be filled in by hand. Append any missing one (blank, with
-  # its guidance) so it is discoverable in .env itself. Existing lines
-  # are never touched, and once the line is there this is a no-op.
-  if ! grep -qE '^[[:space:]]*#?[[:space:]]*OPENWEB_NINJA_API_KEY[[:space:]]*=' .env; then
-    cat >> .env <<'EOF'
-
-# --- Company intel precision boost (optional, Phase 11) ---
-# OpenWeb Ninja "Real-Time Glassdoor Data" API key (free tier: 100
-# requests/month at openwebninja.com). Company intel normally works from
-# web search alone; with a key here, the "(use search api)" checkbox next
-# to the dashboard's Run intel button lets a single research run also
-# pull real Glassdoor employee reviews for that company (~3 requests per
-# company). Off unless you check the box for a run; the key is only ever
-# sent to OpenWeb Ninja, and only the company name is searched.
-OPENWEB_NINJA_API_KEY=
-EOF
-    ok 'Added a new optional setting to .env: OPENWEB_NINJA_API_KEY (left blank).'
-    say '    JobRadar works fully without it — fill it in later to enable the'
-    say '    "(use search api)" precision boost for company intel.'
-  fi
 else
   say '  A few questions write your local settings file (.env).'
   say '  Pressing Enter accepts the [default]. Nothing here leaves this machine.'

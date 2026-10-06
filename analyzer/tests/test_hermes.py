@@ -470,3 +470,115 @@ def test_synthesize_intel_raises_and_reports_raw_reply_after_two_prose_replies(c
     # ...but never leaks into the raised error shown to the client.
     assert second_prose_reply not in str(raised_error.value)
     assert first_prose_reply not in str(raised_error.value)
+
+
+# ---------------------------------------------------------------------------
+# Extraction robustness, round 2 (live Twikey failure: gemma4 returned a
+# JSON object with a missing comma — the decode error escaped
+# _extract_json_object unwrapped, so the retry/logging never engaged)
+# ---------------------------------------------------------------------------
+
+# A missing comma after the summary string, mirroring the live failure
+# ("Expecting ',' delimiter" from json.loads).
+MALFORMED_TWIKEY_JSON = (
+    '{"summary": "Twikey is a European payment orchestration platform" '
+    '"knownFor": ["recurring payments"], "notableProjects": [], '
+    '"reputationNotes": "Growth-stage fintech.", "sentiment": "mixed"}'
+)
+
+VALID_TWIKEY_JSON = json.dumps(
+    {
+        "summary": "Twikey is a European payment orchestration platform",
+        "knownFor": ["recurring payments"],
+        "notableProjects": [],
+        "reputationNotes": "Growth-stage fintech.",
+        "sentiment": "mixed",
+    }
+)
+
+
+def test_synthesize_intel_retries_when_first_reply_is_malformed_json():
+    provider = ScriptedProvider([MALFORMED_TWIKEY_JSON, VALID_TWIKEY_JSON])
+    intel = synthesize_intel("Twikey", [], provider)
+    assert intel["summary"] == "Twikey is a European payment orchestration platform"
+    assert intel["sentiment"] == "mixed"
+    assert len(provider.prompts) == 2
+    assert "not valid JSON" in provider.prompts[1]
+
+
+def test_synthesize_intel_raises_hermes_error_and_reports_raw_reply_after_two_malformed_replies(capsys):
+    second_malformed_reply = MALFORMED_TWIKEY_JSON.replace("European", "Belgian")
+    provider = ScriptedProvider([MALFORMED_TWIKEY_JSON, second_malformed_reply])
+    with pytest.raises(HermesError, match="malformed JSON") as raised_error:
+        synthesize_intel("Twikey", [], provider)
+    assert len(provider.prompts) == 2
+    captured = capsys.readouterr()
+    assert second_malformed_reply in captured.err
+    assert str(len(second_malformed_reply)) in captured.err
+    # The decode detail reaches the error; the raw reply itself does not.
+    assert "Expecting ',' delimiter" in str(raised_error.value)
+    assert second_malformed_reply not in str(raised_error.value)
+
+
+def test_synthesize_intel_salvages_object_before_trailing_prose_with_braces():
+    reply_with_trailing_prose = (
+        VALID_INTEL_JSON
+        + "\n\nNote: the outlook {short term} remains {uncertain} for hiring."
+    )
+    provider = ScriptedProvider([reply_with_trailing_prose])
+    intel = synthesize_intel("Acme Corp", [], provider)
+    assert intel["summary"].startswith("Acme Corp builds anvils")
+    assert len(provider.prompts) == 1
+
+
+def test_synthesize_intel_drops_items_citing_the_companys_own_domain():
+    evidence_entries = [
+        _page_entry(
+            "AccuLynx — Best Roofing CRM Software",
+            "https://www.acculynx.com/",
+            "Our all-in-one platform manages every aspect of your operations.",
+        ),
+        _page_entry(
+            "AccuLynx reviews",
+            "https://www.glassdoor.com/Reviews/AccuLynx-Reviews-E123.htm",
+            "Employee reviews of AccuLynx.",
+        ),
+    ]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "All-in-one platform covering sales and production", "specificity": 4, "corroboration": 3, "evidenceIndex": 1},
+            {"claim": "Protected focus time each week", "specificity": 4, "corroboration": 2, "evidenceIndex": 2},
+        ],
+        negative_items=[
+            {"claim": "Onboarding is entirely self-serve", "specificity": 3, "corroboration": 1, "evidenceIndex": 1},
+        ],
+    )
+    intel = synthesize_intel("AccuLynx", evidence_entries, ScriptedProvider([intel_json]))
+
+    # Only the Glassdoor-cited item survives; both items citing the
+    # company's own marketing pages are dropped, from both sections.
+    assert [item["claim"] for item in intel["positiveItems"]] == [
+        "Protected focus time each week"
+    ]
+    assert intel["positiveItems"][0]["sourceUrl"].startswith("https://www.glassdoor.com")
+    assert intel["negativeItems"] == []
+
+
+def test_synthesize_intel_keeps_items_from_a_domain_label_that_only_contains_the_company_name():
+    evidence_entries = [
+        _page_entry(
+            "AccuLynx reviewed",
+            "https://www.acculynxreviews.com/acculynx",
+            "A third-party roundup reviewing AccuLynx.",
+        ),
+    ]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Praised for responsive support", "specificity": 3, "corroboration": 2, "evidenceIndex": 1},
+        ],
+        negative_items=[],
+    )
+    intel = synthesize_intel("AccuLynx", evidence_entries, ScriptedProvider([intel_json]))
+    assert [item["claim"] for item in intel["positiveItems"]] == [
+        "Praised for responsive support"
+    ]
