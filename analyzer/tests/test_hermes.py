@@ -23,16 +23,18 @@ from analyzer.providers.base import CompletionOptions, LlmProvider
 
 
 class ScriptedProvider(LlmProvider):
-    """Returns canned responses in call order."""
+    """Returns canned responses in call order; records prompts and options."""
 
     provider_name = "scripted"
 
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
         self.prompts: list[str] = []
+        self.completion_options: list[CompletionOptions | None] = []
 
     def complete(self, prompt: str, options: CompletionOptions | None = None) -> str:
         self.prompts.append(prompt)
+        self.completion_options.append(options)
         return self.responses.pop(0)
 
     def complete_with_tools(self, prompt: str, tools: list[dict]):
@@ -415,3 +417,56 @@ def test_analyze_company_fetches_review_platform_pages_first():
 
     assert fetched_urls[0] == "https://www.glassdoor.com/acme-corp"
     assert len(fetched_urls) <= MAX_FETCHED_PAGES
+
+
+# ---------------------------------------------------------------------------
+# Synthesis JSON mode + single retry (fix for the "did not return a JSON
+# object" 502: without response-format enforcement, gemma4 answered the
+# heavy Phase 11 synthesis prompt in plain prose)
+# ---------------------------------------------------------------------------
+
+
+def test_synthesize_intel_requests_json_mode():
+    provider = ScriptedProvider([VALID_INTEL_JSON])
+    synthesize_intel("Acme Corp", [], provider)
+    assert len(provider.completion_options) == 1
+    assert provider.completion_options[0] is not None
+    assert provider.completion_options[0].json_mode is True
+
+
+def test_synthesize_intel_does_not_retry_a_valid_first_reply():
+    provider = ScriptedProvider([VALID_INTEL_JSON])
+    intel = synthesize_intel("Acme Corp", [], provider)
+    assert intel["sentiment"] == "positive"
+    assert len(provider.prompts) == 1
+
+
+def test_synthesize_intel_retries_once_when_first_reply_is_prose():
+    provider = ScriptedProvider(
+        ["Acme Corp is a fine company with a long history.", VALID_INTEL_JSON]
+    )
+    intel = synthesize_intel("Acme Corp", [], provider)
+    assert intel["summary"].startswith("Acme Corp builds anvils")
+    assert len(provider.prompts) == 2
+    assert provider.prompts[1].startswith(provider.prompts[0])
+    assert "not valid JSON" in provider.prompts[1]
+    assert "ONLY the JSON object" in provider.prompts[1]
+    assert "not valid JSON" not in provider.prompts[0]
+    assert provider.completion_options[1] is not None
+    assert provider.completion_options[1].json_mode is True
+
+
+def test_synthesize_intel_raises_and_reports_raw_reply_after_two_prose_replies(capsys):
+    first_prose_reply = "Acme Corp makes anvils and is generally well regarded."
+    second_prose_reply = "In summary, employees describe Acme Corp as a stable place."
+    provider = ScriptedProvider([first_prose_reply, second_prose_reply])
+    with pytest.raises(HermesError, match="did not return a JSON object") as raised_error:
+        synthesize_intel("Acme Corp", [], provider)
+    assert len(provider.prompts) == 2
+    # The raw model text is diagnosable from stderr (container logs)...
+    captured = capsys.readouterr()
+    assert second_prose_reply in captured.err
+    assert str(len(second_prose_reply)) in captured.err
+    # ...but never leaks into the raised error shown to the client.
+    assert second_prose_reply not in str(raised_error.value)
+    assert first_prose_reply not in str(raised_error.value)

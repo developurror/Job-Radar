@@ -32,6 +32,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import sys
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -63,6 +64,19 @@ REVIEW_PLATFORM_HOST_MARKERS = ("glassdoor.", "indeed.")
 # at or above this count (a vague phrase repeated at scale is the pattern).
 GENERIC_PRAISE_CLUSTER_MIN_GENERIC_ITEMS = 2
 GENERIC_PRAISE_CLUSTER_MIN_CORROBORATION = 100
+
+# Appended to the synthesis prompt for the single retry after a non-JSON
+# reply: the Phase 11 synthesis prompt is heavy, and without the required
+# shape restated bluntly, local models answer it in plain prose — which
+# extraction then rejects (the "did not return a JSON object" 502).
+SYNTHESIS_RETRY_CORRECTION = (
+    "\n\nYour previous reply was not valid JSON. Reply with ONLY the JSON "
+    "object described above — no prose, no explanation, no markdown fences."
+)
+
+# How much of an unparseable synthesis response is dumped to stderr: enough
+# to recognize what the model actually did, not a full evidence echo.
+MAX_REPORTED_RESPONSE_CHARS = 1500
 
 # Name tokens that carry no identity (legal forms), ignored when deriving
 # a company's distinctive token / acronym for identity verification.
@@ -259,10 +273,24 @@ def synthesize_intel(
         "side has no supported points, return an empty array for it — never "
         "invent points to fill a side."
     )
-    raw_response = _require_response_content(
-        provider.complete(prompt, CompletionOptions(max_tokens=3072, temperature=0.2))
-    )
-    intel = _extract_json_object(raw_response)
+    # JSON mode is requested explicitly: without response-format
+    # enforcement, gemma-class local models answer this heavy prompt in
+    # plain prose containing no JSON object at all, and extraction fails.
+    synthesis_options = CompletionOptions(max_tokens=3072, temperature=0.2, json_mode=True)
+    raw_response = _require_response_content(provider.complete(prompt, synthesis_options))
+    try:
+        intel = _extract_json_object(raw_response)
+    except HermesError:
+        # One retry with a corrective instruction — and only for the
+        # extraction failure. Provider/transport errors propagate as-is.
+        retry_response = _require_response_content(
+            provider.complete(prompt + SYNTHESIS_RETRY_CORRECTION, synthesis_options)
+        )
+        try:
+            intel = _extract_json_object(retry_response)
+        except HermesError:
+            _print_unparseable_synthesis_response(retry_response)
+            raise
     return _normalize_intel(intel, evidence_entries)
 
 
@@ -450,6 +478,24 @@ def _extract_json_object(raw_response: str) -> dict:
     if not isinstance(parsed, dict):
         raise HermesError("synthesizer did not return a JSON object")
     return parsed
+
+
+def _print_unparseable_synthesis_response(raw_response: str) -> None:
+    """Dump a synthesis response that was not a JSON object to stderr.
+
+    The analyzer has no logging setup; stderr is what lands in
+    `docker compose logs analyzer`, so a parse failure stays diagnosable
+    instead of surfacing as a bare 502 with the model's actual reply
+    lost. The text is deliberately kept OUT of the raised error, which
+    propagates to the client UI.
+    """
+    print(
+        "hermes: synthesizer did not return a JSON object; raw model "
+        f"response ({len(raw_response)} characters), first "
+        f"{MAX_REPORTED_RESPONSE_CHARS} characters:\n"
+        f"{raw_response[:MAX_REPORTED_RESPONSE_CHARS]}",
+        file=sys.stderr,
+    )
 
 
 def _normalize_intel(intel: dict, evidence_entries: list[EvidenceEntry]) -> dict:
