@@ -271,7 +271,11 @@ def synthesize_intel(
         'praise or blame adjectives ("great culture", "bad management") '
         "score 0. Give at most 5 items per array, most specific first. If a "
         "side has no supported points, return an empty array for it — never "
-        "invent points to fill a side."
+        "invent points to fill a side. Items must be drawn from review or "
+        "reporting sources (employee-review platforms, news, third-party "
+        "reporting): the company's own website and marketing pages may "
+        'inform "summary", "knownFor", and "notableProjects", but must '
+        "never be cited as an item."
     )
     # JSON mode is requested explicitly: without response-format
     # enforcement, gemma-class local models answer this heavy prompt in
@@ -291,7 +295,7 @@ def synthesize_intel(
         except HermesError:
             _print_unparseable_synthesis_response(retry_response)
             raise
-    return _normalize_intel(intel, evidence_entries)
+    return _normalize_intel(intel, evidence_entries, company_name)
 
 
 def analyze_company(
@@ -471,10 +475,33 @@ def _extract_json_array(raw_response: str) -> list:
 
 
 def _extract_json_object(raw_response: str) -> dict:
+    # Salvage before the greedy span: decode one JSON value starting at
+    # the first brace. A valid object followed by trailing prose that
+    # itself contains braces parses cleanly here, while the greedy span
+    # below would stretch to the LAST brace and corrupt the object.
+    object_start = raw_response.find("{")
+    if object_start != -1:
+        try:
+            salvaged_object, _end_index = json.JSONDecoder().raw_decode(
+                raw_response, object_start
+            )
+        except json.JSONDecodeError:
+            salvaged_object = None
+        if isinstance(salvaged_object, dict):
+            return salvaged_object
     match = re.search(r"\{[\s\S]*\}", raw_response)
     if not match:
         raise HermesError("synthesizer did not return a JSON object")
-    parsed = json.loads(match.group(0))
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError as decode_error:
+        # Every parse failure must surface as a HermesError: the
+        # synthesis retry and its stderr dump are keyed on it, and a
+        # raw decode error escaping here skipped both (live failure:
+        # gemma4's malformed JSON — "Expecting ',' delimiter").
+        raise HermesError(
+            f"synthesizer returned malformed JSON: {decode_error}"
+        ) from decode_error
     if not isinstance(parsed, dict):
         raise HermesError("synthesizer did not return a JSON object")
     return parsed
@@ -498,7 +525,9 @@ def _print_unparseable_synthesis_response(raw_response: str) -> None:
     )
 
 
-def _normalize_intel(intel: dict, evidence_entries: list[EvidenceEntry]) -> dict:
+def _normalize_intel(
+    intel: dict, evidence_entries: list[EvidenceEntry], company_name: str
+) -> dict:
     """Coerce the LLM's object into the exact intel shape; raise on garbage.
 
     Split items are normalized mechanically: an item whose evidenceIndex
@@ -515,8 +544,13 @@ def _normalize_intel(intel: dict, evidence_entries: list[EvidenceEntry]) -> dict
     if not summary:
         raise HermesError("synthesizer returned an empty summary")
     sentiment = str(intel.get("sentiment", "unknown")).strip().lower()
-    positive_items = _normalize_items(intel.get("positiveItems"), evidence_entries)
-    negative_items = _normalize_items(intel.get("negativeItems"), evidence_entries)
+    company_domain_label = _company_domain_label(company_name)
+    positive_items = _normalize_items(
+        intel.get("positiveItems"), evidence_entries, company_domain_label
+    )
+    negative_items = _normalize_items(
+        intel.get("negativeItems"), evidence_entries, company_domain_label
+    )
     return {
         "summary": summary,
         "knownFor": string_list(intel.get("knownFor")),
@@ -530,9 +564,16 @@ def _normalize_intel(intel: dict, evidence_entries: list[EvidenceEntry]) -> dict
     }
 
 
-def _normalize_items(raw_items, evidence_entries: list[EvidenceEntry]) -> list[dict]:
+def _normalize_items(
+    raw_items, evidence_entries: list[EvidenceEntry], company_domain_label: str
+) -> list[dict]:
     """Normalize one section's items: enforce citations, band specificity,
-    sort by (specificity, corroboration), cap at MAX_ITEMS_PER_SECTION."""
+    sort by (specificity, corroboration), cap at MAX_ITEMS_PER_SECTION.
+
+    An item citing an entry on the company's own domain is also dropped:
+    the company's pages are marketing, not reviews (the live AccuLynx
+    case had "positive reviews" sourced from acculynx.com itself).
+    """
     if not isinstance(raw_items, list):
         return []
     scored_items: list[tuple[int, int, dict]] = []
@@ -547,9 +588,12 @@ def _normalize_items(raw_items, evidence_entries: list[EvidenceEntry]) -> list[d
             continue
         if evidence_index < 1 or evidence_index > len(evidence_entries):
             continue
+        evidence_entry = evidence_entries[evidence_index - 1]
+        evidence_domain_label = _registrable_domain_label(evidence_entry.url)
+        if company_domain_label and evidence_domain_label == company_domain_label:
+            continue
         specificity = _coerce_specificity(raw_item.get("specificity"))
         corroboration = _coerce_corroboration(raw_item.get("corroboration"))
-        evidence_entry = evidence_entries[evidence_index - 1]
         scored_items.append(
             (
                 specificity,
@@ -566,6 +610,30 @@ def _normalize_items(raw_items, evidence_entries: list[EvidenceEntry]) -> list[d
         )
     scored_items.sort(key=lambda scored: (-scored[0], -scored[1]))
     return [item for _specificity, _corroboration, item in scored_items[:MAX_ITEMS_PER_SECTION]]
+
+
+def _company_domain_label(company_name: str) -> str:
+    """The company name as one domain-style label: lowercased, with the
+    alphanumeric runs of its tokens concatenated ("AccuLynx" ->
+    "acculynx", "OAG" -> "oag", "Oag Aviation Worldwide" ->
+    "oagaviationworldwide")."""
+    return "".join(re.findall(r"[a-z0-9à-ÿ]+", company_name.lower()))
+
+
+def _registrable_domain_label(url: str) -> str:
+    """The registrable label of a URL's host: "acculynx" for
+    https://www.acculynx.com/about and https://blog.acculynx.com,
+    "glassdoor" for https://www.glassdoor.ca. "" when the URL has no
+    usable host. The comparison against the company label is exact —
+    a label that merely CONTAINS the company name (oagreviews.com)
+    is a different label and never matches."""
+    host = urllib.parse.urlparse(url).netloc.lower().rsplit("@", 1)[-1].split(":")[0]
+    host_labels = [label for label in host.split(".") if label]
+    if len(host_labels) >= 2:
+        return host_labels[-2]
+    if host_labels:
+        return host_labels[0]
+    return ""
 
 
 def _coerce_specificity(value) -> int:
