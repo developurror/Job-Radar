@@ -371,6 +371,17 @@ model for that route.
 After changing `.env`, restart with `./run.sh` so the services pick the
 new settings up.
 
+> **A note on model choice:** JobRadar asks its model for strict
+> JSON — verdicts, scores, and the company-intel synthesis — and
+> thinking/reasoning models are a poor fit for that in practice. A
+> reasoning model spends part of every generation budget in its hidden
+> thinking channel, which on longer structured replies can leave the
+> JSON itself truncated or malformed, and makes every run slower.
+> Dense, non-reasoning instruction-tuned models answer directly and
+> have proven both faster and more reliable here; Hermes 3 8B is the
+> tested default. If you experiment with a reasoning model, expect
+> occasional failed evaluations and intel runs.
+
 ### Starting and stopping
 
 ```bash
