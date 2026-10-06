@@ -124,6 +124,11 @@ export type IntelEvidenceStatus = 'sufficient' | 'insufficient';
 
 export type IntelSpecificityBand = 'high' | 'medium' | 'generic';
 
+/** Outcome of a research run's OpenWeb Ninja search-API attempt; mirrors
+ *  the API's SearchApiOutcome. Absent on intel from runs that did not
+ *  opt in, so old and search-only cards show no search-API line. */
+export type SearchApiOutcome = 'contributed' | 'no_match' | 'no_evidence' | 'request_failed';
+
 /** One split-section evidence item. kind 'signal': search-surfaced
  *  evidence; kind 'review': a literal employee review (API path). */
 export interface IntelItem {
@@ -145,6 +150,7 @@ export interface CompanyIntel {
   positiveItems: IntelItem[];
   negativeItems: IntelItem[];
   genericPraiseCluster: boolean;
+  searchApiOutcome?: SearchApiOutcome;
 }
 
 export type CompanyIntelStatus = 'fresh' | 'stale' | 'none' | 'queued' | 'researching' | 'failed';

@@ -271,6 +271,9 @@
           <p class="text-caption text-disabled">
             {{ t('jobDetail.researchedMeta', { date: intelFetchedAt ? d(intelFetchedAt, 'dateOnly') : t('jobDetail.unknownDate') }) }}
           </p>
+          <p v-if="intel.searchApiOutcome" class="text-caption text-disabled">
+            {{ searchApiOutcomeLabel(intel.searchApiOutcome) }}
+          </p>
         </div>
         <v-alert v-else-if="intelStatus === 'failed'" type="error" density="compact" class="mb-2">
           {{ intelFailureMessage || t('jobDetail.researchFailed') }}
@@ -292,7 +295,7 @@ import { useI18n } from 'vue-i18n';
 import { api } from '../api';
 import { useJobsStore } from '../stores/jobs';
 import { SPOKEN_LANGUAGE_RULE_CRITERION_ID } from '../types';
-import type { CompanyIntel, CompanyIntelStatus, CriterionKind, CriterionResult, CriterionVerdict, EvaluationOutcome, IntelSentiment, IntelSpecificityBand, IntelStatusResponse, JobEvaluation, JobFeedback, JobFlag, JobScores, ScoreFactor } from '../types';
+import type { CompanyIntel, CompanyIntelStatus, CriterionKind, CriterionResult, CriterionVerdict, EvaluationOutcome, IntelSentiment, IntelSpecificityBand, IntelStatusResponse, JobEvaluation, JobFeedback, JobFlag, JobScores, ScoreFactor, SearchApiOutcome } from '../types';
 
 const props = defineProps<{ jobId: number }>();
 const emit = defineEmits<{ scored: [] }>();
@@ -379,6 +382,14 @@ function factorDisplayLabel(factor: ScoreFactor): string {
 function sentimentLabel(sentiment: IntelSentiment): string {
   const catalogKey = `jobDetail.sentiments.${sentiment}`;
   return te(catalogKey) ? t(catalogKey) : sentiment;
+}
+
+/** What the "(use search api)" attempt did for the run that produced
+ *  this intel — shown only when an outcome was recorded, so a user who
+ *  ticked the box can see whether Glassdoor evidence actually went in. */
+function searchApiOutcomeLabel(outcome: SearchApiOutcome): string {
+  const catalogKey = `jobDetail.searchApiOutcomes.${outcome}`;
+  return te(catalogKey) ? t(catalogKey) : outcome;
 }
 
 async function loadDetail() {

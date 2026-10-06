@@ -7,6 +7,17 @@ export type IntelSentiment = 'positive' | 'mixed' | 'negative' | 'unknown';
  *  company's, so no sections are shown rather than another company's. */
 export type IntelEvidenceStatus = 'sufficient' | 'insufficient';
 
+/** Outcome of one research run's OpenWeb Ninja search-API attempt (the
+ *  "(use search api)" opt-in). Recorded on the intel that run produced,
+ *  so a card can say plainly whether Glassdoor evidence actually went
+ *  into it: 'contributed' — review/overview evidence was handed to the
+ *  analyzer; 'no_match' — company resolution found no exact-name match,
+ *  so nothing was fetched; 'no_evidence' — the company resolved but its
+ *  overview/reviews carried nothing usable; 'request_failed' — the API
+ *  request errored or its payload could not be parsed. Every non-
+ *  'contributed' outcome still yields the full search-only intel. */
+export type SearchApiOutcome = 'contributed' | 'no_match' | 'no_evidence' | 'request_failed';
+
 /** Specificity band from the Phase 11 spike rubric (0-5 score, banded:
  *  4-5 high, 2-3 medium, 0-1 generic). Bands, not a strict rank. */
 export type IntelSpecificityBand = 'high' | 'medium' | 'generic';
@@ -48,6 +59,12 @@ export interface CompanyIntel {
   /** True when the top positive items are generic-band praise repeated
    *  at cluster scale — the coached-reviews pattern (spec §4.2). */
   genericPraiseCluster: boolean;
+  /** Search-API outcome of the run that produced this intel. Present
+   *  only when that run opted into the API AND a key was configured (an
+   *  attempt was made); absent on search-only runs and on intel cached
+   *  before this field existed. Set by the API layer after analysis —
+   *  the analyzer never produces it. */
+  searchApiOutcome?: SearchApiOutcome;
 }
 
 /** Section defaults for intel cached before Phase 11 (no split fields):

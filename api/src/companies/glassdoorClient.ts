@@ -3,8 +3,12 @@
  * The optional precision boost for company intel (spec §4.5): real
  * Glassdoor employee-review text, behind the user's own API key. This
  * client is called ONLY when a research run opted in ("(use search api)"
- * checkbox) and a key is configured — and any failure returns null, so
- * the search-only Hermes path proceeds exactly as before.
+ * checkbox) and a key is configured. Every outcome — contributed,
+ * no match, no usable evidence, request failed — is reported to the
+ * caller as a discriminated result, never a bare null, so the run can
+ * record and show whether the API actually contributed; the graceful
+ * contract is unchanged (the search-only Hermes path proceeds exactly
+ * as before on every non-contributed outcome).
  *
  * Identity (spec §4.6.3): the company is resolved by the platform's
  * company ID, and only when a search candidate's name matches the
@@ -22,7 +26,11 @@
  * envelope was not live-verified (no key exists yet).
  */
 import { redactSensitiveUrlParams } from '../redactSensitiveUrlParams.js';
-import { normalizeCompanyName, type IntelReviewEvidence } from './types.js';
+import {
+  normalizeCompanyName,
+  type IntelReviewEvidence,
+  type SearchApiOutcome,
+} from './types.js';
 
 export const OPENWEB_NINJA_GLASSDOOR_BASE_URL =
   'https://api.openwebninja.com/realtime-glassdoor-data';
@@ -40,6 +48,20 @@ export interface GlassdoorCompanyEvidence {
   reviewEvidence: IntelReviewEvidence[];
 }
 
+/** The discriminated result of one Glassdoor evidence fetch: what
+ *  happened, the evidence when there is any, and the failure detail
+ *  when the request itself failed. */
+export interface GlassdoorFetchResult {
+  outcome: SearchApiOutcome;
+  /** Resolved company evidence; non-null only when the outcome is
+   *  'contributed'. */
+  evidence: GlassdoorCompanyEvidence | null;
+  /** Redacted failure detail (never contains credential values); set
+   *  only when the outcome is 'request_failed'. The caller logs it —
+   *  this client stays silent so each attempted run logs one line. */
+  failureMessage: string | null;
+}
+
 type FetchFn = typeof fetch;
 
 /** The user's own OpenWeb Ninja key from the environment; null when unset. */
@@ -49,18 +71,24 @@ export function readGlassdoorApiKey(env: NodeJS.ProcessEnv = process.env): strin
 }
 
 /**
- * Resolve the company and fetch its overview + reviews. Returns null on
- * ANY failure (network, HTTP status, unparseable payload, no exact-name
- * match) — the caller falls back to search-only research.
+ * Resolve the company and fetch its overview + reviews, reporting the
+ * outcome instead of collapsing it: 'no_match' when company resolution
+ * finds no exact-name candidate, 'no_evidence' when the company
+ * resolves but neither overview nor reviews carry anything usable,
+ * 'request_failed' when a request errors or its payload cannot be
+ * parsed. Never throws — every outcome leaves the caller free to
+ * proceed with search-only research.
  */
 export async function fetchGlassdoorCompanyEvidence(
   apiKey: string,
   companyName: string,
   fetchFn: FetchFn = fetch,
-): Promise<GlassdoorCompanyEvidence | null> {
+): Promise<GlassdoorFetchResult> {
   try {
     const resolvedCompany = await searchGlassdoorCompany(apiKey, companyName, fetchFn);
-    if (!resolvedCompany) return null;
+    if (!resolvedCompany) {
+      return { outcome: 'no_match', evidence: null, failureMessage: null };
+    }
     const [overviewPayload, reviewsPayload] = await Promise.all([
       requestGlassdoorJson(apiKey, '/company-overview', { company_id: resolvedCompany.id }, fetchFn),
       requestGlassdoorJson(
@@ -72,20 +100,26 @@ export async function fetchGlassdoorCompanyEvidence(
     ]);
     const overviewEvidence = toOverviewEvidence(overviewPayload, resolvedCompany.name);
     const reviewEvidence = toReviewEvidence(reviewsPayload, overviewEvidence?.sourceUrl ?? '');
-    if (!overviewEvidence && reviewEvidence.length === 0) return null;
+    if (!overviewEvidence && reviewEvidence.length === 0) {
+      return { outcome: 'no_evidence', evidence: null, failureMessage: null };
+    }
     return {
-      glassdoorCompanyId: resolvedCompany.id,
-      companyName: resolvedCompany.name,
-      overviewEvidence,
-      reviewEvidence,
+      outcome: 'contributed',
+      evidence: {
+        glassdoorCompanyId: resolvedCompany.id,
+        companyName: resolvedCompany.name,
+        overviewEvidence,
+        reviewEvidence,
+      },
+      failureMessage: null,
     };
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : String(error);
-    console.error(
-      `Glassdoor API evidence fetch failed for "${companyName}":`,
-      redactSensitiveUrlParams(rawMessage),
-    );
-    return null;
+    return {
+      outcome: 'request_failed',
+      evidence: null,
+      failureMessage: redactSensitiveUrlParams(rawMessage),
+    };
   }
 }
 
