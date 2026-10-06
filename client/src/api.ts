@@ -112,9 +112,10 @@ export const api = {
   getCompanyIntel(companyName: string): Promise<IntelStatusResponse> {
     return requestJson(`/v1/companies/${encodeURIComponent(companyName)}/intel`);
   },
-  startCompanyResearch(companyName: string): Promise<ResearchStartResponse> {
+  startCompanyResearch(companyName: string, useSearchApi = false): Promise<ResearchStartResponse> {
     return requestJson(`/v1/companies/${encodeURIComponent(companyName)}/research`, {
       method: 'POST',
+      body: JSON.stringify({ useSearchApi }),
     });
   },
   getResearchState(): Promise<ResearchStateResponse> {

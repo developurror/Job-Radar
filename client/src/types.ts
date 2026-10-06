@@ -118,12 +118,33 @@ export interface FlagSetting {
 /** Spec F8: company intel from the Hermes agent. */
 export type IntelSentiment = 'positive' | 'mixed' | 'negative' | 'unknown';
 
+/** Phase 11 (F13): 'insufficient' = research found nothing verifiably
+ *  belonging to this company — a first-class state, not an error. */
+export type IntelEvidenceStatus = 'sufficient' | 'insufficient';
+
+export type IntelSpecificityBand = 'high' | 'medium' | 'generic';
+
+/** One split-section evidence item. kind 'signal': search-surfaced
+ *  evidence; kind 'review': a literal employee review (API path). */
+export interface IntelItem {
+  claim: string;
+  specificityBand: IntelSpecificityBand;
+  corroboration: number;
+  sourceTitle: string;
+  sourceUrl: string;
+  kind: 'signal' | 'review';
+}
+
 export interface CompanyIntel {
   summary: string;
   knownFor: string[];
   notableProjects: string[];
   reputationNotes: string;
   sentiment: IntelSentiment;
+  evidenceStatus: IntelEvidenceStatus;
+  positiveItems: IntelItem[];
+  negativeItems: IntelItem[];
+  genericPraiseCluster: boolean;
 }
 
 export type CompanyIntelStatus = 'fresh' | 'stale' | 'none' | 'queued' | 'researching' | 'failed';

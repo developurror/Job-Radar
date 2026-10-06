@@ -131,6 +131,47 @@ describe('company research queue', () => {
     expect(researchQueue.researchStatusFor('   ')).toBeNull();
   });
 
+  it('passes the useSearchApi opt-in to the research worker', async () => {
+    const recordedRuns: Array<{ displayName: string; useSearchApi: boolean }> = [];
+    const researchQueue = createCompanyResearchQueue(async (displayName, useSearchApi) => {
+      recordedRuns.push({ displayName, useSearchApi });
+    });
+
+    researchQueue.enqueueResearch('Acme Corp', { useSearchApi: true });
+    researchQueue.enqueueResearch('Beta LLC');
+    await waitForQueueToAdvance();
+
+    expect(recordedRuns).toEqual([
+      { displayName: 'Acme Corp', useSearchApi: true },
+      { displayName: 'Beta LLC', useSearchApi: false },
+    ]);
+  });
+
+  it('upgrades a waiting run when a later enqueue opts into the search API', async () => {
+    const recordedRuns: Array<{ displayName: string; useSearchApi: boolean }> = [];
+    const deferredRuns: DeferredRun[] = [];
+    const researchQueue = createCompanyResearchQueue((displayName, useSearchApi) => {
+      recordedRuns.push({ displayName, useSearchApi });
+      const deferredRun = createDeferredRun();
+      deferredRuns.push(deferredRun);
+      return deferredRun.promise;
+    });
+
+    researchQueue.enqueueResearch('Blocker Co');
+    researchQueue.enqueueResearch('Beta LLC');
+    researchQueue.enqueueResearch('Beta LLC', { useSearchApi: true });
+
+    deferredRuns[0].resolveRun();
+    await waitForQueueToAdvance();
+
+    expect(recordedRuns).toEqual([
+      { displayName: 'Blocker Co', useSearchApi: false },
+      { displayName: 'Beta LLC', useSearchApi: true },
+    ]);
+    deferredRuns[1].resolveRun();
+    await waitForQueueToAdvance();
+  });
+
   it('redacts credentials from stored failure messages', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const researchQueue = createCompanyResearchQueue(async () => {

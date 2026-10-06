@@ -13,6 +13,7 @@ services:
       ADZUNA_WHAT: ${ADZUNA_WHAT:-}
       ADZUNA_WHERE: ${ADZUNA_WHERE:-}
       ADZUNA_MAX_PAGES: ${ADZUNA_MAX_PAGES:-2}
+      OPENWEB_NINJA_API_KEY: ${OPENWEB_NINJA_API_KEY:-}
     # SQLite database lives in ./data: inspectable in VS Code, easy to back up.
     volumes:
       - ./data:/data

@@ -9,8 +9,15 @@
 import { normalizeCompanyName, type ResearchStateResponse } from './types.js';
 import { redactSensitiveUrlParams } from '../redactSensitiveUrlParams.js';
 
+export interface ResearchRunOptions {
+  /** Phase 11: this run opted into the OpenWeb Ninja Glassdoor API
+   *  ("(use search api)" checkbox). Off by default — bot sessions and
+   *  automatic top-company research never set it. */
+  useSearchApi?: boolean;
+}
+
 export interface CompanyResearchQueue {
-  enqueueResearch(displayName: string): 'queued' | 'researching';
+  enqueueResearch(displayName: string, options?: ResearchRunOptions): 'queued' | 'researching';
   researchStatusFor(displayName: string): 'queued' | 'researching' | 'failed' | null;
   failureMessageFor(displayName: string): string | null;
   researchState(): ResearchStateResponse;
@@ -19,10 +26,11 @@ export interface CompanyResearchQueue {
 interface WaitingCompany {
   key: string;
   displayName: string;
+  useSearchApi: boolean;
 }
 
 export function createCompanyResearchQueue(
-  runResearch: (displayName: string) => Promise<void>,
+  runResearch: (displayName: string, useSearchApi: boolean) => Promise<void>,
 ): CompanyResearchQueue {
   let activeCompany: WaitingCompany | null = null;
   const waitingCompanies: WaitingCompany[] = [];
@@ -35,7 +43,7 @@ export function createCompanyResearchQueue(
     activeCompany = nextCompany;
     let researchPromise: Promise<void>;
     try {
-      researchPromise = runResearch(nextCompany.displayName);
+      researchPromise = runResearch(nextCompany.displayName, nextCompany.useSearchApi);
     } catch (error) {
       researchPromise = Promise.reject(error);
     }
@@ -63,13 +71,25 @@ export function createCompanyResearchQueue(
   }
 
   return {
-    enqueueResearch(displayName: string) {
+    enqueueResearch(displayName: string, options: ResearchRunOptions = {}) {
       const key = normalizeCompanyName(displayName);
       if (!key) return 'queued';
       failureMessages.delete(key);
       if (activeCompany?.key === key) return 'researching';
-      if (waitingCompanies.some((waitingCompany) => waitingCompany.key === key)) return 'queued';
-      waitingCompanies.push({ key, displayName });
+      const waitingCompany = waitingCompanies.find(
+        (candidateCompany) => candidateCompany.key === key,
+      );
+      if (waitingCompany) {
+        // A later opt-in upgrades the waiting run: the user explicitly
+        // asked for API precision for a company that is still in line.
+        if (options.useSearchApi) waitingCompany.useSearchApi = true;
+        return 'queued';
+      }
+      waitingCompanies.push({
+        key,
+        displayName,
+        useSearchApi: options.useSearchApi === true,
+      });
       startNextResearch();
       return activeCompany?.key === key ? 'researching' : 'queued';
     },

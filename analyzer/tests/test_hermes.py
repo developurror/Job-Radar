@@ -56,13 +56,41 @@ VALID_INTEL_JSON = json.dumps(
 )
 
 
-def test_plan_search_queries_parses_and_caps(monkeypatch):
-    monkeypatch.setattr(
-        ScriptedProvider, "complete", lambda self, prompt, options=None: '["q1","q2","q3","q4","q5","q6"]'
+def test_plan_search_queries_parses_tracks_and_caps(monkeypatch):
+    planner_reply = json.dumps(
+        {
+            "blendedQueries": ["b1", "b2", "b3"],
+            "positiveQueries": ["p1", "p2", "p3"],
+            "negativeQueries": ["n1", "n2", "n3"],
+        }
     )
-    queries = plan_search_queries("Acme Corp", ScriptedProvider([]))
-    assert queries == ["q1", "q2", "q3", "q4"]
-    assert len(queries) <= MAX_PLANNED_QUERIES
+    monkeypatch.setattr(
+        ScriptedProvider, "complete", lambda self, prompt, options=None: planner_reply
+    )
+    planned_queries = plan_search_queries("Acme Corp", ScriptedProvider([]))
+    assert [(planned.query, planned.track) for planned in planned_queries] == [
+        ("b1", "blended"),
+        ("b2", "blended"),
+        ("p1", "positive"),
+        ("p2", "positive"),
+        ("n1", "negative"),
+        ("n2", "negative"),
+    ]
+    assert len(planned_queries) <= MAX_PLANNED_QUERIES
+
+
+def test_plan_search_queries_accepts_legacy_array_as_blended(monkeypatch):
+    monkeypatch.setattr(
+        ScriptedProvider,
+        "complete",
+        lambda self, prompt, options=None: '["q1","q2","q3"]',
+    )
+    planned_queries = plan_search_queries("Acme Corp", ScriptedProvider([]))
+    assert [(planned.query, planned.track) for planned in planned_queries] == [
+        ("q1", "blended"),
+        ("q2", "blended"),
+        ("q3", "blended"),
+    ]
 
 
 def test_plan_search_queries_rejects_garbage():
@@ -191,3 +219,199 @@ def test_analyze_company_endpoint_rejects_blank_name(monkeypatch):
     # Blank names fail inside the agent loop -> 502 with a clear message.
     assert response.status_code == 502
     assert "empty" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 (F13): split synthesis, citation enforcement, identity verification
+# ---------------------------------------------------------------------------
+
+
+def _split_intel_json(positive_items: list, negative_items: list) -> str:
+    return json.dumps(
+        {
+            "summary": "Acme Corp builds anvils for cartoon coyotes.",
+            "knownFor": ["anvils"],
+            "notableProjects": [],
+            "reputationNotes": "Some signals found.",
+            "sentiment": "mixed",
+            "positiveItems": positive_items,
+            "negativeItems": negative_items,
+        }
+    )
+
+
+def _page_entry(title: str, url: str, text: str) -> hermes.EvidenceEntry:
+    return hermes.EvidenceEntry(title=title, url=url, text=text, track="blended", kind="signal")
+
+
+def test_synthesize_intel_normalizes_split_items_with_bands_and_sources():
+    evidence_entries = [
+        _page_entry("Acme reviews", "https://example.com/reviews", "Praise and complaints."),
+        _page_entry("Acme careers", "https://example.com/careers", "Benefits page."),
+    ]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Two hours a week of protected development time", "specificity": 4, "corroboration": 12, "evidenceIndex": 1},
+            {"claim": "Friendly team", "specificity": 3, "corroboration": 2, "evidenceIndex": 2},
+        ],
+        negative_items=[
+            {"claim": "Bad vibes", "specificity": 0, "corroboration": 1, "evidenceIndex": 1},
+        ],
+    )
+    intel = synthesize_intel("Acme Corp", evidence_entries, ScriptedProvider([intel_json]))
+
+    assert intel["evidenceStatus"] == "sufficient"
+    assert intel["positiveItems"][0]["specificityBand"] == "high"
+    assert intel["positiveItems"][0]["sourceTitle"] == "Acme reviews"
+    assert intel["positiveItems"][0]["sourceUrl"] == "https://example.com/reviews"
+    assert intel["positiveItems"][0]["kind"] == "signal"
+    assert intel["positiveItems"][0]["corroboration"] == 12
+    assert intel["positiveItems"][1]["specificityBand"] == "medium"
+    assert intel["negativeItems"][0]["specificityBand"] == "generic"
+    assert intel["genericPraiseCluster"] is False
+
+
+def test_synthesize_intel_drops_items_without_a_valid_citation():
+    evidence_entries = [_page_entry("Acme reviews", "https://example.com/reviews", "Text.")]
+    intel_json = _split_intel_json(
+        positive_items=[
+            {"claim": "No index at all", "specificity": 5, "corroboration": 3},
+            {"claim": "Index out of range", "specificity": 5, "corroboration": 3, "evidenceIndex": 99},
+            {"claim": "Index of the wrong type", "specificity": 5, "corroboration": 3, "evidenceIndex": "1"},
+            {"claim": "", "specificity": 5, "corroboration": 3, "evidenceIndex": 1},
+        ],
+        negative_items=[],
+    )
+    intel = synthesize_intel("Acme Corp", evidence_entries, ScriptedProvider([intel_json]))
+    assert intel["positiveItems"] == []
+
+
+def test_synthesize_intel_caps_and_orders_items_per_section():
+    evidence_entries = [_page_entry("Acme reviews", "https://example.com/reviews", "Text.")]
+    positive_items = [
+        {"claim": f"Point {index}", "specificity": specificity, "corroboration": 1, "evidenceIndex": 1}
+        for index, specificity in enumerate([1, 5, 3, 4, 2])
+    ]
+    intel = synthesize_intel(
+        "Acme Corp", evidence_entries, ScriptedProvider([_split_intel_json(positive_items, [])])
+    )
+    assert len(intel["positiveItems"]) == hermes.MAX_ITEMS_PER_SECTION
+    assert [item["claim"] for item in intel["positiveItems"]] == ["Point 1", "Point 3", "Point 2"]
+
+
+def test_synthesize_intel_flags_generic_praise_cluster():
+    evidence_entries = [_page_entry("Acme reviews", "https://example.com/reviews", "Text.")]
+    clustered_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Great culture", "specificity": 0, "corroboration": 14253, "evidenceIndex": 1},
+            {"claim": "Amazing place to settle", "specificity": 1, "corroboration": 900, "evidenceIndex": 1},
+        ],
+        negative_items=[],
+    )
+    intel = synthesize_intel("Acme Corp", evidence_entries, ScriptedProvider([clustered_json]))
+    assert intel["genericPraiseCluster"] is True
+
+    quiet_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Great culture", "specificity": 0, "corroboration": 3, "evidenceIndex": 1},
+            {"claim": "Nice team", "specificity": 1, "corroboration": 2, "evidenceIndex": 1},
+        ],
+        negative_items=[],
+    )
+    intel = synthesize_intel("Acme Corp", evidence_entries, ScriptedProvider([quiet_json]))
+    assert intel["genericPraiseCluster"] is False
+
+
+def test_page_belongs_to_company_matching_rules():
+    assert hermes.page_belongs_to_company(
+        "Busbud", "Busbud Reviews", "https://www.glassdoor.com/Reviews/Busbud-Reviews-E1.htm", ""
+    )
+    assert not hermes.page_belongs_to_company(
+        "Busbud",
+        "Bus.com Reviews",
+        "https://www.glassdoor.com/Reviews/Bus-Com-Reviews-E2.htm",
+        "Bus.com is a charter bus marketplace. Riders and drivers review Bus.com here.",
+    )
+    assert hermes.page_belongs_to_company(
+        "Tata Consultancy Services", "TCS Reviews", "https://ca.indeed.com/cmp/Tcs", ""
+    )
+    assert hermes.page_belongs_to_company(
+        "Acme Corp", "Homepage", "https://example.com/", "Acme Corp builds anvils."
+    )
+    assert not hermes.page_belongs_to_company(
+        "Acme Corp", "Unrelated", "https://example.com/other", "Nothing about anyone."
+    )
+
+
+def test_analyze_company_returns_insufficient_when_pages_belong_to_another_company():
+    def fake_search(query: str) -> list[SearchResult]:
+        return [SearchResult(title="Bus.com Reviews", url="https://www.glassdoor.com/bus-com")]
+
+    def fake_fetch(url: str) -> str:
+        return "Bus.com is a different company entirely; people review Bus.com here."
+
+    # Only the planner response is scripted: synthesis must never be called.
+    provider = ScriptedProvider(['["Busbud reviews"]'])
+    intel = analyze_company("Busbud", provider, search_fn=fake_search, fetch_fn=fake_fetch)
+
+    assert intel["evidenceStatus"] == "insufficient"
+    assert intel["sentiment"] == "unknown"
+    assert intel["positiveItems"] == []
+    assert intel["negativeItems"] == []
+
+
+def test_analyze_company_uses_supplied_review_evidence_when_search_finds_nothing():
+    def empty_search(query: str) -> list[SearchResult]:
+        return []
+
+    def unused_fetch(url: str) -> str:
+        raise AssertionError("no page fetch expected")
+
+    synthesis_json = _split_intel_json(
+        positive_items=[
+            {"claim": "Unlimited PTO that people actually take", "specificity": 4, "corroboration": 1, "evidenceIndex": 1}
+        ],
+        negative_items=[],
+    )
+    provider = ScriptedProvider(['["Busbud reviews"]', synthesis_json])
+    intel = analyze_company(
+        "Busbud",
+        provider,
+        search_fn=empty_search,
+        fetch_fn=unused_fetch,
+        review_evidence=[
+            {
+                "text": "Pros: unlimited PTO, and yes, people still take vacation.",
+                "sourceTitle": "Glassdoor review — Engineer",
+                "sourceUrl": "https://www.glassdoor.com/reviews/busbud",
+            }
+        ],
+    )
+
+    assert intel["evidenceStatus"] == "sufficient"
+    assert intel["positiveItems"][0]["kind"] == "review"
+    assert intel["positiveItems"][0]["sourceTitle"] == "Glassdoor review — Engineer"
+
+
+def test_analyze_company_fetches_review_platform_pages_first():
+    fetched_urls: list[str] = []
+
+    def fake_search(query: str) -> list[SearchResult]:
+        results = [
+            SearchResult(title=f"Blog {index}", url=f"https://blog{index}.example.com/acme-corp")
+            for index in range(11)
+        ]
+        results.append(
+            SearchResult(title="Acme Corp Reviews", url="https://www.glassdoor.com/acme-corp")
+        )
+        return results
+
+    def fake_fetch(url: str) -> str:
+        fetched_urls.append(url)
+        return "Acme Corp page text."
+
+    provider = ScriptedProvider(['["Acme Corp reviews"]', VALID_INTEL_JSON])
+    analyze_company("Acme Corp", provider, search_fn=fake_search, fetch_fn=fake_fetch)
+
+    assert fetched_urls[0] == "https://www.glassdoor.com/acme-corp"
+    assert len(fetched_urls) <= MAX_FETCHED_PAGES

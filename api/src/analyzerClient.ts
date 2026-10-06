@@ -1,4 +1,4 @@
-import type { CompanyIntel } from './companies/types.js';
+import type { CompanyIntel, IntelReviewEvidence } from './companies/types.js';
 
 const ANALYZER_BASE_URL = process.env.ANALYZER_BASE_URL ?? 'http://localhost:8000';
 
@@ -111,13 +111,22 @@ export async function learnScoreBatch(
   return (await response.json()) as LearnScoreBatchResult;
 }
 
+export interface AnalyzeCompanyOptions {
+  /** Pre-verified employee-review evidence (Phase 11: Glassdoor API
+   *  opt-in). The analyzer cites these alongside its fetched pages. */
+  reviewEvidence?: IntelReviewEvidence[];
+}
+
 /** Company intel via the Hermes agent (spec F8). Only the company name is sent —
  *  this function takes no profile or job data by design. Throws on non-2xx. */
-export async function analyzeCompany(companyName: string): Promise<CompanyIntel> {
+export async function analyzeCompany(
+  companyName: string,
+  options: AnalyzeCompanyOptions = {},
+): Promise<CompanyIntel> {
   const response = await fetch(`${ANALYZER_BASE_URL}/v1/analyze/company`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ companyName }),
+    body: JSON.stringify({ companyName, reviewEvidence: options.reviewEvidence ?? [] }),
   });
   if (!response.ok) {
     throw new Error(

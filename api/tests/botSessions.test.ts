@@ -48,6 +48,10 @@ const FAKE_INTEL: CompanyIntel = {
   notableProjects: [],
   reputationNotes: 'Generally positive mentions.',
   sentiment: 'positive',
+  evidenceStatus: 'sufficient',
+  positiveItems: [],
+  negativeItems: [],
+  genericPraiseCluster: false,
 };
 
 let database: Database;

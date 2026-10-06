@@ -173,6 +173,12 @@ else
   if { [ -n "$ADZUNA_ID" ] && [ -z "$ADZUNA_KEY" ]; } || { [ -z "$ADZUNA_ID" ] && [ -n "$ADZUNA_KEY" ]; }; then
     warn 'Only one of the two Adzuna values was given — Adzuna needs both, so it will stay off until you add the other in .env or the dashboard.'
   fi
+  say ''
+  say '  Optional: an OpenWeb Ninja API key (openwebninja.com, free tier)'
+  say '  lets company intel pull real Glassdoor employee reviews when you'
+  say '  tick "(use search api)" on a research run. JobRadar works fully'
+  say '  without it. Press Enter to skip.'
+  OPENWEB_NINJA_KEY="$(ask 'OpenWeb Ninja API key (optional)' '')"
 
   cat > .env <<EOF
 # JobRadar local settings — written by install.sh. Edit freely.
@@ -190,6 +196,10 @@ ADZUNA_APP_KEY=$ADZUNA_KEY
 ADZUNA_COUNTRY=$SEARCH_COUNTRY
 ADZUNA_WHAT=$SEARCH_KEYWORDS
 ADZUNA_MAX_PAGES=2
+
+# OpenWeb Ninja Glassdoor API (optional; intel precision boost, off by
+# default — used only for runs where you tick "(use search api)").
+OPENWEB_NINJA_API_KEY=$OPENWEB_NINJA_KEY
 EOF
   ok '.env written.'
 fi

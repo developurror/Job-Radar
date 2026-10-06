@@ -70,14 +70,17 @@ export function registerCompanyRoutes(
     res.json(toStatusResponse(cached, displayName, 'none', null));
   });
 
-  /** Enqueue explicit research for this company (serialized, FIFO). */
+  /** Enqueue explicit research for this company (serialized, FIFO).
+   *  Body may carry { useSearchApi: true } — the dashboard's per-run
+   *  opt-in to the Glassdoor API precision boost (Phase 11). */
   app.post('/v1/companies/:name/research', (req, res) => {
     const displayName = String(req.params.name ?? '').trim();
     if (!displayName) {
       res.status(400).json({ error: 'company name is required' });
       return;
     }
-    const status = researchQueue.enqueueResearch(displayName);
+    const useSearchApi = (req.body as { useSearchApi?: unknown } | undefined)?.useSearchApi === true;
+    const status = researchQueue.enqueueResearch(displayName, { useSearchApi });
     res.status(202).json({ displayName, status });
   });
 }
